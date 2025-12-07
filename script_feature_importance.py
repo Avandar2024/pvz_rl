@@ -65,8 +65,8 @@ for episode_idx in range(n_ep):
 _grid_size = config.N_LANES * config.LANE_LENGTH
 
 obs = np.concatenate(obs)
-obs = np.array([np.concatenate([state[:_grid_size], 
-                       np.sum(state[_grid_size: 2 * _grid_size].reshape(-1, config.LANE_LENGTH), axis=1), 
+obs = np.array([np.concatenate([state[:_grid_size],
+                       np.sum(state[_grid_size: 2 * _grid_size].reshape(-1, config.LANE_LENGTH), axis=1),
                        state[2 * _grid_size:]]) for state in obs])
 
 n_obs = len(obs)

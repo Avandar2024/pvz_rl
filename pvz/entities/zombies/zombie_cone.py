@@ -5,7 +5,7 @@ from .zombie import Zombie
 
 class Zombie_cone(Zombie):
 
-    MAX_HP = 560  
+    MAX_HP = 560
     SCORE = 40 # It will add 30 for the normal zombie kill
 
     def step(self, scene):
@@ -29,4 +29,4 @@ class Zombie_cone(Zombie):
             zombie._offset = self._offset
             scene.add_zombie(zombie)
             self.hp=0
-    
+

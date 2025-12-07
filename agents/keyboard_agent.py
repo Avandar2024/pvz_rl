@@ -8,7 +8,7 @@ SUN_NORM = 200
 class KeyboardAgent():
     def __init__(self, n_plants=4):
         self.n_plants = n_plants
-        
+
     def decide_action(self, observation):
         # predict probabilities for actions
         s = input("Do something (y/n): ")
@@ -41,7 +41,7 @@ class PVZ():
         self.render = render
         self._grid_size = config.N_LANES * config.LANE_LENGTH
 
-        
+
     def get_actions(self):
         return list(range(self.env.action_space.n))
 
@@ -53,8 +53,8 @@ class PVZ():
 
     def _transform_observation(self, observation):
         observation_zombie = self._grid_to_lane(observation[self._grid_size:2*self._grid_size])
-        observation = np.concatenate([observation[:self._grid_size], observation_zombie, 
-        [observation[2 * self._grid_size]/SUN_NORM], 
+        observation = np.concatenate([observation[:self._grid_size], observation_zombie,
+        [observation[2 * self._grid_size]/SUN_NORM],
         observation[2 * self._grid_size+1:]])
         if (self.render):
             print(observation)
@@ -72,7 +72,7 @@ class PVZ():
         summary['observations'] = list()
         summary['actions'] = list()
         observation = self._transform_observation(self.env.reset())
-        
+
         t = 0
 
         while(self.env._scene._chrono<self.max_frames):
@@ -106,7 +106,7 @@ if __name__ == "__main__":
     agent = KeyboardAgent()
 
     for episode_idx in range(1000):
-        
+
         # play episodes
         summary = env.play(agent)
         summary['score'] = np.sum(summary["rewards"])
@@ -116,4 +116,3 @@ if __name__ == "__main__":
         # Update agent
         agent.update(summary["observations"],summary["actions"],summary["rewards"])
         # print(agent.policy(torch.from_numpy(np.random.random(env.num_observations())).type(torch.FloatTensor)))
-        

@@ -10,6 +10,6 @@ class Pea(Projectile):
 
     def _attack_zombies(self, zombies): # Pea hits the first zombie and dies
         # Zombie that is the most on the left
-        zombie_hit = min(zombies, key = lambda z: (z.pos, z._offset)) 
+        zombie_hit = min(zombies, key = lambda z: (z.pos, z._offset))
         zombie_hit.hp -= self._attack
         self.hp = 0 # The projectile dies

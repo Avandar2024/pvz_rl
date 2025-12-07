@@ -27,7 +27,7 @@ class Scene:
         self.score = 0 # score
         self.lives = 1 # hp of the player (lives = 0: lossed battle)
 
-        self._render_info = [{"zombies": [[] for _ in range(config.N_LANES)], "plants": [[] for _ in range(config.N_LANES)], 
+        self._render_info = [{"zombies": [[] for _ in range(config.N_LANES)], "plants": [[] for _ in range(config.N_LANES)],
                             "projectiles": [[] for _ in range(config.N_LANES)], "sun": self.sun,
                             "score": self.score, "cooldowns": {name: 0 for name in self.plant_cooldowns}, "time":0}]
 
@@ -39,7 +39,7 @@ class Scene:
             zombie.step(self)
         for projectile in self.projectiles:
             projectile.step(self)
-        
+
         self._chrono += 1
         self.score = config.SURVIVAL * int((self._chrono + 1) % (config.FPS * config.SURVIVAL_STEP) == 0) + self.grid._mowers.sum()
 
@@ -91,13 +91,13 @@ class Scene:
     def _timed_events(self):
         for plant in self.plant_cooldowns:
             self.plant_cooldowns[plant] = max(0, self.plant_cooldowns[plant] - 1)
-        
+
         if self._timer <= 0:
             self.sun += config.NATURAL_SUN_PRODUCTION
             self._timer = config.NATURAL_SUN_PRODUCTION_COOLDOWN * config.FPS - 1
-    
+
     def _render_get_info(self):
-        info = {"zombies": [[] for _ in range(config.N_LANES)], "plants": [[] for _ in range(config.N_LANES)], 
+        info = {"zombies": [[] for _ in range(config.N_LANES)], "plants": [[] for _ in range(config.N_LANES)],
                 "projectiles": [[] for _ in range(config.N_LANES)], "sun": self.sun,
                 "score": self.score, "cooldowns": {name: int(self.plant_cooldowns[name]/config.FPS)+1 for name in self.plant_cooldowns},
                 "time": int(self._chrono/config.FPS)}

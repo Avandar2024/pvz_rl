@@ -39,7 +39,7 @@ class Zombie(Entity):
 
     def attack(self, plant):
         plant.hp -= self._attack
-    
+
     def get_offset(self):
         return self._offset/self._cell_length
 

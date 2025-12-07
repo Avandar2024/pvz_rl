@@ -15,17 +15,17 @@ def evaluate(env, agent, n_iter=1000, verbose = True):
     for episode_idx in range(n_iter):
         if verbose:
             print("\r{}/{}".format(episode_idx, n_iter), end="")
-        
+
         # play episodes
         summary = env.play(agent)
         summary['score'] = np.sum(summary["rewards"])
 
         score_hist.append(summary['score'])
         iter_hist.append(min(env.env._scene._chrono, config.MAX_FRAMES))
-        
+
         sum_score += summary['score']
         sum_iter += min(env.env._scene._chrono, config.MAX_FRAMES)
-        
+
         # if env.env._scene._chrono >= 1000:
         #    render_info = env.env._scene._render_info
         #    render(render_info)
