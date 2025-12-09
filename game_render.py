@@ -1,5 +1,3 @@
-import warnings
-
 import gymnasium as gym
 import pygame
 import torch
@@ -10,11 +8,6 @@ from agents import PlayerQ
 from agents import ReinforceAgentV2, PlayerV2
 from agents.ddqn_agent import QNetwork
 from pvz import config
-
-warnings.filterwarnings("ignore", category=UserWarning)
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings("ignore", category=UserWarning, module="pygame.pkgdata")
-
 
 class PVZ():
     def __init__(self, render=True, max_frames=1000):
@@ -33,12 +26,8 @@ class PVZ():
 
     def play(self, agent):
         """ Play one episode and collect observations and rewards """
-        # Normalize reset return (Gymnasium may return (obs, info))
-        reset_res = self.env.reset()
-        if isinstance(reset_res, tuple):
-            observation = reset_res[0]
-        else:
-            observation = reset_res
+        # Gymnasium reset() returns (observation, info)
+        observation, _info = self.env.reset()
         t = 0
 
         for t in range(self.max_frames):
@@ -46,18 +35,9 @@ class PVZ():
                 self.env.render()
 
             action = agent.decide_action(observation)
-            # Handle Gymnasium step returning either 4-tuple or 5-tuple
-            step_res = self.env.step(action)
-            if isinstance(step_res, tuple):
-                if len(step_res) == 5:
-                    observation, reward, terminated, truncated, info = step_res
-                    done = bool(terminated or truncated)
-                elif len(step_res) == 4:
-                    observation, reward, done, info = step_res
-                else:
-                    raise RuntimeError(f"Unexpected env.step() return shape: {len(step_res)}")
-            else:
-                raise RuntimeError("env.step() did not return a tuple")
+            # Gymnasium step() returns (observation, reward, terminated, truncated, info)
+            observation, reward, terminated, truncated, info = self.env.step(action)
+            done = bool(terminated or truncated)
 
             if done:
                 break

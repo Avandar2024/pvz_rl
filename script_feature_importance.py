@@ -36,7 +36,7 @@ except Exception:
     # If full object load fails, try loading as a state-dict or weights-only file.
     # This will succeed if the file contains only tensors/state_dict.
     try:
-        agent = torch.load(load_path, map_location=DEVICE)
+        agent = torch.load(load_path, weights_only=False,map_location=DEVICE)
     except Exception:
         # Re-raise the original error if nothing worked
         raise

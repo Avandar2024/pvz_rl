@@ -92,7 +92,7 @@ class ReinforceAgentV2():
         torch.save(self.policy, nn_name)
 
     def load(self, nn_name):
-        self.policy = torch.load(nn_name)
+        self.policy = torch.load(nn_name, weights_only=False)
 
     def _get_mask(self, observation):
         empty_cells = np.nonzero((observation[:self._grid_size]==0).reshape(config.N_LANES, config.LANE_LENGTH))
@@ -122,7 +122,11 @@ class PlayerV2():
         return list(range(self.env.action_space.n))
 
     def num_observations(self):
-        return config.N_LANES * config.LANE_LENGTH + config.N_LANES + len(self.env.plant_deck) + 1
+        # Resolve underlying env in case wrappers hide custom attributes like plant_deck
+        env_for_space = self.env
+        while hasattr(env_for_space, 'env'):
+            env_for_space = env_for_space.env
+        return config.N_LANES * config.LANE_LENGTH + config.N_LANES + len(env_for_space.plant_deck) + 1
 
     def num_actions(self):
         return self.env.action_space.n
@@ -148,7 +152,9 @@ class PlayerV2():
         summary['rewards'] = list()
         summary['observations'] = list()
         summary['actions'] = list()
-        observation = self._transform_observation(self.env.reset())
+        # Gymnasium reset() returns (observation, info)
+        observation, _info = self.env.reset()
+        observation = self._transform_observation(observation)
 
         t = 0
 
@@ -163,7 +169,8 @@ class PlayerV2():
 
             summary['observations'].append(observation)
             summary['actions'].append(action)
-            observation, reward, done, info = self.env.step(action)
+            observation, reward, terminated, truncated, info = self.env.step(action)
+            done = bool(terminated or truncated)
             observation = self._transform_observation(observation)
             summary['rewards'].append(reward)
 

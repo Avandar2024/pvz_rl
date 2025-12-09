@@ -26,11 +26,11 @@ if __name__ == "__main__":
 
     if agent_type == "DDQN":
         env = PlayerQ(render=False)
-        agent = torch.load("agents/agent_zoo/dfq5_epsexp")
+        agent = torch.load("agents/agent_zoo/dfq5_epsexp", weights_only=False)
 
     if agent_type == "DQN":
         env = PlayerQ_DQN(render=False)
-        agent = torch.load("agents/agent_zoo/dfq5_dqn")
+        agent = torch.load("agents/agent_zoo/dfq5_dqn", weights_only=False)
 
     if agent_type == "Keyboard":
         env = PlayerV2(render=True, max_frames=500 * config.FPS)

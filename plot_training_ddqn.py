@@ -8,7 +8,7 @@ if __name__ == "__main__":
     name = sys.argv[1]
     rewards = np.load(name+"_rewards.npy")
     iterations = np.load(name+"_iterations.npy")
-    loss = torch.load(name+"_loss")
+    loss = torch.load(name+"_loss", weights_only=False)
     real_rewards = np.load(name+"_real_rewards.npy")
     real_iterations = np.load(name+"_real_iterations.npy")
 
