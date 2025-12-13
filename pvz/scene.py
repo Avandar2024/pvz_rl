@@ -107,7 +107,12 @@ class Scene:
             if projectile._render():
                 info["projectiles"][projectile.lane].append((projectile.__class__.__name__, projectile._pos, projectile._offset))
         for plant in self.plants:
-            info["plants"][plant.lane].append((plant.__class__.__name__, plant.pos))
+            # 对土豆地雷，传递激活状态信息
+            if plant.__class__.__name__ == "Potatomine":
+                is_active = plant.attack_cooldown <= 0
+                info["plants"][plant.lane].append((plant.__class__.__name__, plant.pos, is_active))
+            else:
+                info["plants"][plant.lane].append((plant.__class__.__name__, plant.pos, None))
         return info
 
     def move_available(self): # Return true if a player can make a move

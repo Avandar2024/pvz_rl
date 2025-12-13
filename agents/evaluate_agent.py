@@ -12,6 +12,13 @@ def evaluate(env, agent, n_iter=1000, verbose = True):
     n_iter = n_iter
     actions = []
 
+    # 解包所有wrapper
+    def _get_base_env(e):
+        base_env = e
+        while hasattr(base_env, 'env'):
+            base_env = base_env.env
+        return base_env
+
     for episode_idx in range(n_iter):
         if verbose:
             print("\r{}/{}".format(episode_idx, n_iter), end="")
@@ -20,14 +27,15 @@ def evaluate(env, agent, n_iter=1000, verbose = True):
         summary = env.play(agent)
         summary['score'] = np.sum(summary["rewards"])
 
+        base_env = _get_base_env(env.env)
         score_hist.append(summary['score'])
-        iter_hist.append(min(env.env._scene._chrono, config.MAX_FRAMES))
+        iter_hist.append(min(base_env._scene._chrono, config.MAX_FRAMES))
         
         sum_score += summary['score']
-        sum_iter += min(env.env._scene._chrono, config.MAX_FRAMES)
+        sum_iter += min(base_env._scene._chrono, config.MAX_FRAMES)
         
-        # if env.env._scene._chrono >= 1000:
-        #    render_info = env.env._scene._render_info
+        # if base_env._scene._chrono >= 1000:
+        #    render_info = base_env._scene._render_info
         #    render(render_info)
         #    input()
         actions.append(summary['actions'])

@@ -5,6 +5,7 @@ from agents import evaluate, PlayerV2, ReinforceAgentV2
 from agents import PlayerQ
 from agents import PlayerQ_DQN
 from agents import ACAgent3, TrainerAC3, KeyboardAgent
+from agents.ddqn_agent import QNetwork
 
 agent_type = "DDQN"  # DDQN or Reinforce or AC or Keyboard
 
@@ -26,11 +27,25 @@ if __name__ == "__main__":
 
     if agent_type == "DDQN":
         env = PlayerQ(render=False)
-        agent = torch.load("agents/agent_zoo/dfq5_epsexp")
+        # 修复PyTorch 2.6兼容性：允许加载QNetwork类
+        if hasattr(torch.serialization, "safe_globals"):
+            from torch.serialization import safe_globals as _safe_globals
+            with _safe_globals([QNetwork]):
+                agent = torch.load("agents/agent_zoo/dfq5_epsexp", weights_only=False, map_location="cpu")
+        else:
+            torch.serialization.add_safe_globals([QNetwork])
+            agent = torch.load("agents/agent_zoo/dfq5_epsexp", weights_only=False, map_location="cpu")
 
     if agent_type == "DQN":
         env = PlayerQ_DQN(render=False)
-        agent = torch.load("agents/agent_zoo/dfq5_dqn")
+        # 修复PyTorch 2.6兼容性：允许加载QNetwork类
+        if hasattr(torch.serialization, "safe_globals"):
+            from torch.serialization import safe_globals as _safe_globals
+            with _safe_globals([QNetwork]):
+                agent = torch.load("agents/agent_zoo/dfq5_dqn", weights_only=False, map_location="cpu")
+        else:
+            torch.serialization.add_safe_globals([QNetwork])
+            agent = torch.load("agents/agent_zoo/dfq5_dqn", weights_only=False, map_location="cpu")
 
     if agent_type == "Keyboard":
         env = PlayerV2(render=True, max_frames=500 * config.FPS)
