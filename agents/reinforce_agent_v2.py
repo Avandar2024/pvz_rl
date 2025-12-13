@@ -75,14 +75,14 @@ class ReinforceAgentV2():
         for observation_batch, action_batch, reward_batch in self.iterate_minibatches(observation, actions, rewards, batchsize = 100, shuffle=True):
             #import pdb; pdb.set_trace()
             mask_batch = torch.Tensor([self._get_mask(s) for s in observation_batch]).type(torch.BoolTensor).detach()
-            
+
             s_var =  Variable(torch.from_numpy(observation_batch.astype(np.float32)))
             a_var = Variable(torch.from_numpy(action_batch).view(-1).type(torch.LongTensor))
             A_var = Variable(torch.from_numpy(reward_batch.astype(np.float32)))
-            
+
             pred = self.policy.forward(s_var)
             pred = pred / torch.Tensor([torch.sum(pred[i,:][mask_batch[i,:]]) for i in range(len(pred))]).view(-1,1)
-            
+
             loss += F.nll_loss(pred * A_var,a_var)
 
         loss.backward(loss)
@@ -92,7 +92,7 @@ class ReinforceAgentV2():
         torch.save(self.policy, nn_name)
 
     def load(self, nn_name):
-        self.policy = torch.load(nn_name)
+        self.policy = torch.load(nn_name, weights_only=False)
 
     def _get_mask(self, observation):
         empty_cells = np.nonzero((observation[:self._grid_size]==0).reshape(config.N_LANES, config.LANE_LENGTH))
@@ -117,12 +117,16 @@ class PlayerV2():
         self.render = render
         self._grid_size = config.N_LANES * config.LANE_LENGTH
 
-        
+
     def get_actions(self):
         return list(range(self.env.action_space.n))
 
     def num_observations(self):
-        return config.N_LANES * config.LANE_LENGTH + config.N_LANES + len(self.env.plant_deck) + 1
+        # Resolve underlying env in case wrappers hide custom attributes like plant_deck
+        env_for_space = self.env
+        while hasattr(env_for_space, 'env'):
+            env_for_space = env_for_space.env
+        return config.N_LANES * config.LANE_LENGTH + config.N_LANES + len(env_for_space.plant_deck) + 1
 
     def num_actions(self):
         return self.env.action_space.n
@@ -130,8 +134,8 @@ class PlayerV2():
     def _transform_observation(self, observation):
         observation = observation.astype(np.float64)
         observation_zombie = self._grid_to_lane(observation[self._grid_size:2*self._grid_size])
-        observation = np.concatenate([observation[:self._grid_size], observation_zombie, 
-        [observation[2 * self._grid_size]/SUN_NORM], 
+        observation = np.concatenate([observation[:self._grid_size], observation_zombie,
+        [observation[2 * self._grid_size]/SUN_NORM],
         observation[2 * self._grid_size+1:]])
         if self.render:
             print(observation)
@@ -148,8 +152,10 @@ class PlayerV2():
         summary['rewards'] = list()
         summary['observations'] = list()
         summary['actions'] = list()
-        observation = self._transform_observation(self.env.reset())
-        
+        # Gymnasium reset() returns (observation, info)
+        observation, _info = self.env.reset()
+        observation = self._transform_observation(observation)
+
         t = 0
 
         while(self.env._scene._chrono<self.max_frames):
@@ -163,7 +169,8 @@ class PlayerV2():
 
             summary['observations'].append(observation)
             summary['actions'].append(action)
-            observation, reward, done, info = self.env.step(action)
+            observation, reward, terminated, truncated, info = self.env.step(action)
+            done = bool(terminated or truncated)
             observation = self._transform_observation(observation)
             summary['rewards'].append(reward)
 
@@ -206,7 +213,7 @@ if __name__ == "__main__":
     # threshold = Threshold(seq_length = n_iter, start_epsilon=0.005, end_epsilon=0.005)
 
     for episode_idx in range(n_iter):
-        
+
         # play episodes
         # epsilon = threshold.epsilon(episode_idx)
         summary = env.play(agent)
@@ -248,7 +255,7 @@ if __name__ == "__main__":
             eval_score_plt.append(avg_score)
             eval_iter_plt.append(avg_iter)
             # input()
-        
+
 
     plt.plot(range(n_record, n_iter+1, n_record), score_plt)
     plt.plot(range(n_evaluate, n_iter+1, n_evaluate), eval_score_plt, color='red')

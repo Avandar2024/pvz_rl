@@ -8,7 +8,7 @@ SUN_NORM = 200
 class KeyboardAgent():
     def __init__(self, n_plants=4):
         self.n_plants = n_plants
-        
+
     def decide_action(self, observation):
         # predict probabilities for actions
         s = input("Do something (y/n): ")
@@ -41,20 +41,23 @@ class PVZ():
         self.render = render
         self._grid_size = config.N_LANES * config.LANE_LENGTH
 
-        
+
     def get_actions(self):
         return list(range(self.env.action_space.n))
 
     def num_observations(self):
-        return config.N_LANES * config.LANE_LENGTH + config.N_LANES + len(env.env.plant_deck) + 1
+        env_for_space = self.env
+        while hasattr(env_for_space, 'env'):
+            env_for_space = env_for_space.env
+        return config.N_LANES * config.LANE_LENGTH + config.N_LANES + len(env_for_space.plant_deck) + 1
 
     def num_actions(self):
         return self.env.action_space.n
 
     def _transform_observation(self, observation):
         observation_zombie = self._grid_to_lane(observation[self._grid_size:2*self._grid_size])
-        observation = np.concatenate([observation[:self._grid_size], observation_zombie, 
-        [observation[2 * self._grid_size]/SUN_NORM], 
+        observation = np.concatenate([observation[:self._grid_size], observation_zombie,
+        [observation[2 * self._grid_size]/SUN_NORM],
         observation[2 * self._grid_size+1:]])
         if (self.render):
             print(observation)
@@ -71,8 +74,10 @@ class PVZ():
         summary['rewards'] = list()
         summary['observations'] = list()
         summary['actions'] = list()
-        observation = self._transform_observation(self.env.reset())
-        
+        # Gymnasium reset() returns (observation, info)
+        observation, _info = self.env.reset()
+        observation = self._transform_observation(observation)
+
         t = 0
 
         while(self.env._scene._chrono<self.max_frames):
@@ -86,7 +91,8 @@ class PVZ():
 
             summary['observations'].append(observation)
             summary['actions'].append(action)
-            observation, reward, done, info = self.env.step(action)
+            observation, reward, terminated, truncated, info = self.env.step(action)
+            done = bool(terminated or truncated)
             observation = self._transform_observation(observation)
             summary['rewards'].append(reward)
 
@@ -106,7 +112,7 @@ if __name__ == "__main__":
     agent = KeyboardAgent()
 
     for episode_idx in range(1000):
-        
+
         # play episodes
         summary = env.play(agent)
         summary['score'] = np.sum(summary["rewards"])
@@ -116,4 +122,3 @@ if __name__ == "__main__":
         # Update agent
         agent.update(summary["observations"],summary["actions"],summary["rewards"])
         # print(agent.policy(torch.from_numpy(np.random.random(env.num_observations())).type(torch.FloatTensor)))
-        

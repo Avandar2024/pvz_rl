@@ -25,7 +25,7 @@ class Sunflower(Plant):
     def __init__(self, lane, pos):
         super().__init__(lane, pos)
         self.production_cooldown = self.INITIAL_COOLDOWN * config.FPS - 1
-    
+
     def step(self, scene):
         if self.production_cooldown <= 0:
             scene.sun += self.PRODUCTION

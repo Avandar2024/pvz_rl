@@ -2,7 +2,7 @@ from . import config
 
 class Move:
     """A move consists in planting a plant on the grid"""
-    
+
     def __init__(self, plant_name, lane, pos):
         self.plant_name = plant_name
 
@@ -15,7 +15,7 @@ class Move:
 
     def is_valid(self, scene):
         assert (self.plant_name in scene.plant_deck) # Else the doesn't even exists
-        
+
         valid = True
         valid &= scene.plant_cooldowns[self.plant_name] <= 0 # Cooldown refreshed
         valid &= scene.grid.is_empty(self.lane, self.pos) # Cell is empty of all plants

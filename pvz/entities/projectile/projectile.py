@@ -12,7 +12,7 @@ class Projectile(Entity):
         self._speed = speed
         self._pos = pos
         self._offset = 0. # Between 0 and 1
-        
+
         # Used to find intermediary hits since we need the segment between two intermediary positions
         self._previous_pos = pos
         self._previous_offset = 0.
@@ -23,7 +23,7 @@ class Projectile(Entity):
     def _move_one_step(self): # Move the projectile right for one frame
         self._previous_pos = self._pos
         self._previous_offset = self._offset
-        
+
         self._offset += self._speed / config.FPS
         self._pos += int(self._offset)
         self._offset -= int(self._offset)
@@ -41,7 +41,7 @@ class Projectile(Entity):
                 (self._pos, self._offset * zombie.WALKING_SPEED * config.FPS) >= (zombie.pos, zombie._offset): # Lexicographic order
                 return True
         return False
-    
+
     def _attack_zombies(self, zombies): # What does the projectile do when it meets zombies that are in its path
         pass
 
@@ -51,7 +51,7 @@ class Projectile(Entity):
         for zombie in scene.zombies:
             if self._hit(zombie):
                 zombies_hit.append(zombie)
-        
+
         if zombies_hit:
             self._attack_zombies(zombies_hit)
         if self._is_out():
@@ -60,4 +60,3 @@ class Projectile(Entity):
     def _render(self):
         return not self._render_start
 
-    

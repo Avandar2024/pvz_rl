@@ -18,7 +18,7 @@ class WaveZombieSpawner(ZombieSpawner):
     def spawn(self, scene):
         if self._timer <= 0 and self._wave_timer>0 :
             lane = random.choice(range(config.N_LANES))
-            s=random.random() 
+            s=random.random()
             if(s<self.p):
                 scene.add_zombie(Zombie_bucket(lane))
             elif(s<3*self.p):
@@ -33,7 +33,7 @@ class WaveZombieSpawner(ZombieSpawner):
             else:
                 scene.add_zombie(Zombie_flag(0))
                 for lane in range(config.N_LANES):
-                    s=random.random() 
+                    s=random.random()
                     if(s<self.p):
                         scene.add_zombie(Zombie_bucket(lane))
                     elif(s<3*self.p):

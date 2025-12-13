@@ -11,6 +11,6 @@ class Mower(Projectile):
     def _attack_zombies(self, zombies): # Kills all zombies
         for zombie in zombies:
             zombie.hp = 0
-    
+
     def _render(self):
         return True

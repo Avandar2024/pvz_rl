@@ -6,7 +6,6 @@ from copy import deepcopy
 from collections import namedtuple, deque
 import numpy as np
 from .threshold import Threshold
-from . import evaluate
 
 HP_NORM = 1
 SUN_NORM = 200
@@ -16,7 +15,7 @@ def sum_onehot(grid):
 
 
 class QNetwork(nn.Module):
-    
+
     def __init__(self, env, epsilon=0.05, learning_rate=1e-3, device='cpu', use_zombienet=True, use_gridnet=True):
         super(QNetwork, self).__init__()
         self.device = device
@@ -50,10 +49,10 @@ class QNetwork(nn.Module):
         # Set to GPU if cuda is specified
         if self.device == 'cuda':
             self.network.cuda()
-            
+
         self.optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.parameters()),
                                           lr=self.learning_rate)
-        
+
     def decide_action(self, state, mask, epsilon):
         # mask = self.env.mask_available_actions()
         if np.random.random() < epsilon:
@@ -61,7 +60,7 @@ class QNetwork(nn.Module):
         else:
             action = self.get_greedy_action(state, mask)
         return action
-    
+
     def get_greedy_action(self, state, mask):
         qvals = self.get_qvals(state)
         qvals[np.logical_not(mask)] = qvals.min()
@@ -106,9 +105,9 @@ class ZombieNet(nn.Module):
         return self.fc1(x)
 
 class DDQNAgent:
-    
+
     def __init__(self, env, network, buffer, n_iter = 100000, batch_size=32):
-        
+
         self._grid_size = config.N_LANES * config.LANE_LENGTH
         self.env = env
         self.network = network
@@ -127,7 +126,7 @@ class DDQNAgent:
         self.reward_threshold = 30000
         self.initialize()
         self.player = PlayerQ(env = env, render=False)
-        
+
 
     def take_step(self, mode='train'):
         # Resolve underlying env in case wrappers (OrderEnforcing) hide custom methods
@@ -166,7 +165,7 @@ class DDQNAgent:
             obs_raw, _info = self.env.reset()
             self.s_0 = self._transform_observation(obs_raw)
         return done
-    
+
     # def add_play_to_buffer(self):
     #     rewards = self.discount_rewards(np.array(self.pre_buffer_rewards))
     #     for i in range(len(rewards)):
@@ -175,7 +174,7 @@ class DDQNAgent:
     #         self.buffer.append(s_0, action, r, done, s_1)
     #     self.pre_buffer_rewards = []
     #     self.pre_buffer = []
-        
+
     # Implement DQN training algorithm
     def train(self, gamma=0.99, max_episodes=100000,
               network_update_frequency=32,
@@ -207,7 +206,7 @@ class DDQNAgent:
                     self.target_network.load_state_dict(
                         self.network.state_dict())
                     self.sync_eps.append(ep)
-                    
+
                 if done:
                     ep += 1
                     self.training_rewards.append(self.rewards)
@@ -222,7 +221,7 @@ class DDQNAgent:
                     self.mean_training_iterations.append(mean_iteration)
                     print("\rEpisode {:d} Mean Rewards {:.2f}\t\t Mean Iterations {:.2f}\t\t".format(
                         ep, mean_rewards,mean_iteration), end="")
-                    
+
                     if ep >= max_episodes:
                         training = False
                         print('\nEpisode limit reached.')
@@ -232,13 +231,14 @@ class DDQNAgent:
                         print('\nEnvironment solved in {} episodes!'.format(
                             ep))
                         break
-                    if (ep%evaluate_frequency) == evaluate_frequency - 1:
-                        avg_score, avg_iter = evaluate(self.player, self.network, n_iter = evaluate_n_iter, verbose=False)
+                    if (ep % evaluate_frequency) == evaluate_frequency - 1:
+                        # 延迟导入以避免循环引用（evaluate 在 agents 包里，与 ddqn_agent 互相导入会触发循环）
+                        from .evaluate_agent import evaluate as _evaluate
+                        avg_score, avg_iter = _evaluate(self.player, self.network, n_iter=evaluate_n_iter, verbose=False)
                         self.real_iterations.append(avg_iter)
                         self.real_rewards.append(avg_score)
 
 
-                    
 
     def calculate_loss(self, batch):
         full_mask = np.full(self.env.action_space.n, True)
@@ -250,7 +250,7 @@ class DDQNAgent:
         dones_t = torch.ByteTensor(dones).to(device=self.network.device)
 
         qvals = torch.gather(self.network.get_qvals(states), 1, actions_t) # The selected action already respects the mask
-        
+
         #################################################################
         # DDQN Update
         next_masks = np.array([self._get_mask(s) for s in next_states])
@@ -266,7 +266,7 @@ class DDQNAgent:
         expected_qvals = self.gamma * qvals_next + rewards_t
         loss = nn.MSELoss()(qvals, expected_qvals)
         return loss
-    
+
     def update(self):
         self.network.optimizer.zero_grad()
         batch = self.buffer.sample_batch(batch_size=self.batch_size)
@@ -282,7 +282,7 @@ class DDQNAgent:
         observation = observation.astype(np.float64)
         observation = np.concatenate([observation[:self._grid_size],
         observation[self._grid_size:(2*self._grid_size)]/HP_NORM,
-        [observation[2 * self._grid_size]/SUN_NORM], 
+        [observation[2 * self._grid_size]/SUN_NORM],
         observation[2 * self._grid_size+1:]])
         return observation
 
@@ -306,14 +306,14 @@ class DDQNAgent:
     def _grid_to_lane(self, grid):
         grid = np.reshape(grid, (config.N_LANES, config.LANE_LENGTH))
         return np.sum(grid, axis=1)/HP_NORM
-        
+
     def _save_training_data(self, nn_name):
         np.save(nn_name+"_rewards", self.training_rewards)
         np.save(nn_name+"_iterations", self.training_iterations)
         np.save(nn_name+"_real_rewards", self.real_rewards)
         np.save(nn_name+"_real_iterations", self.real_iterations)
         torch.save(self.training_loss, nn_name+"_loss")
-        
+
     def initialize(self):
         self.training_rewards = []
         self.training_loss = []
@@ -334,7 +334,7 @@ class experienceReplayBuffer:
     def __init__(self, memory_size=50000, burn_in=10000):
         self.memory_size = memory_size
         self.burn_in = burn_in
-        self.Buffer = namedtuple('Buffer', 
+        self.Buffer = namedtuple('Buffer',
             field_names=['state', 'action', 'reward', 'done', 'next_state'])
         self.replay_memory = deque(maxlen=memory_size)
 
@@ -362,7 +362,7 @@ class PlayerQ():
         self.render = render
         self._grid_size = config.N_LANES * config.LANE_LENGTH
 
-        
+
     def get_actions(self):
         env = self.env
         while hasattr(env, 'env'):
@@ -385,7 +385,7 @@ class PlayerQ():
         observation = observation.astype(np.float64)
         observation = np.concatenate([observation[:self._grid_size],
         observation[self._grid_size:(2*self._grid_size)]/HP_NORM,
-        [observation[2 * self._grid_size]/SUN_NORM], 
+        [observation[2 * self._grid_size]/SUN_NORM],
         observation[2 * self._grid_size+1:]])
         return observation
 
@@ -407,7 +407,7 @@ class PlayerQ():
         else:
             obs_raw = reset_res
         observation = self._transform_observation(obs_raw)
-        
+
         t = 0
 
         while(True):

@@ -23,7 +23,7 @@ class Potatomine(Plant):
         self.attack_cooldown = self.ATTACK_COOLDOWN * config.FPS - 1
         self.used=0
 
-    
+
     def step(self, scene):
         if self.attack_cooldown <= 0:
             for zombie in scene.zombies:
@@ -37,7 +37,7 @@ class Potatomine(Plant):
                 self.hp=0
         else:
             self.attack_cooldown -= 1
-                    
-           
+
+
 
 

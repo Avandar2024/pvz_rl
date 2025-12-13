@@ -28,7 +28,7 @@ class Peashooter(Plant):
         self.attack_cooldown = self.ATTACK_COOLDOWN * config.FPS - 1
         self.projectiles = []
 
-    
+
     def step(self, scene):
         if self.attack_cooldown <= 0:
             if scene.grid.is_attacked(self.lane):
@@ -50,5 +50,5 @@ class Peashooter(Plant):
             if alive and (not projectile.is_out()):
                 kept_projectiles.append(projectile)
         self.projectiles = kept_projectiles"""
-            
+
 

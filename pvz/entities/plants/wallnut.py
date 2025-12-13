@@ -17,6 +17,6 @@ class Wallnut(Plant):
     def __init__(self, lane, pos):
         super().__init__(lane, pos)
 
-    
+
     def step(self, scene):
         pass

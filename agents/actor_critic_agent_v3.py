@@ -94,8 +94,8 @@ class ACAgent3():
 
 
     def load(self, nn_name_1, nn_name_2):
-        self.policy = torch.load(nn_name_1)
-        self.valuenet = torch.load(nn_name_2)
+        self.policy = torch.load(nn_name_1, weights_only=False)
+        self.valuenet = torch.load(nn_name_2, weights_only=False)
 
 
 
@@ -106,18 +106,25 @@ class TrainerAC3():
         self.max_frames = max_frames
         self.render = render
         self._grid_size = config.N_LANES * config.LANE_LENGTH
+        # Unwrap underlying env in case wrappers (OrderEnforcing) hide custom attributes
+        env_for_space = self.env
+        while hasattr(env_for_space, 'env'):
+            env_for_space = env_for_space.env
+        self.env_base = env_for_space
 
 
     def get_actions(self):
-        return list(range(self.env.action_space.n))
+        return list(range(self.env_base.action_space.n))
 
     def num_observations(self):
-        return config.N_LANES * config.LANE_LENGTH + config.N_LANES + len(self.env.plant_deck) + 1
+        return config.N_LANES * config.LANE_LENGTH + config.N_LANES + len(self.env_base.plant_deck) + 1
 
     def num_actions(self):
-        return self.env.action_space.n
+        return self.env_base.action_space.n
 
     def _transform_observation(self, observation):
+        # Expect Gymnasium observation only: `obs` (not (obs, info))
+        # print(f"observation: {observation}")
         observation_zombie = self._grid_to_lane(observation[self._grid_size:2*self._grid_size])
         observation = np.concatenate([observation[:self._grid_size], observation_zombie,
         [observation[2 * self._grid_size]/SUN_NORM],
@@ -127,6 +134,7 @@ class TrainerAC3():
         return observation
 
     def _grid_to_lane(self, grid):
+      
         grid = np.reshape(grid, (config.N_LANES, config.LANE_LENGTH))
         return np.sum(grid, axis=1)/HP_NORM
 
@@ -137,11 +145,13 @@ class TrainerAC3():
         summary['rewards'] = list()
         summary['observations'] = list()
         summary['actions'] = list()
-        observation = self._transform_observation(self.env.reset())
+        # Gymnasium reset() returns (observation, info)
+        observation, _info = self.env.reset()
+        observation = self._transform_observation(observation)
 
         t = 0
 
-        while(self.env._scene._chrono<self.max_frames):
+        while(self.env_base._scene._chrono<self.max_frames):
             if(self.render):
                 self.env.render()
 
@@ -149,7 +159,9 @@ class TrainerAC3():
 
             summary['observations'].append(observation)
             summary['actions'].append(action)
-            observation, reward, done, info = self.env.step(action)
+            # Gymnasium step() returns (observation, reward, terminated, truncated, info)
+            observation, reward, terminated, truncated, info = self.env.step(action)
+            done = bool(terminated or truncated)
             observation = self._transform_observation(observation)
             summary['rewards'].append(reward)
 
@@ -162,4 +174,4 @@ class TrainerAC3():
         return summary
 
     def get_render_info(self):
-        return self.env._scene._render_info
+        return self.env_base._scene._render_info

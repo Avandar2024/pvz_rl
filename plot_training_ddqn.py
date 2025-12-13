@@ -8,7 +8,7 @@ if __name__ == "__main__":
     name = sys.argv[1]
     rewards = np.load(name+"_rewards.npy")
     iterations = np.load(name+"_iterations.npy")
-    loss = torch.load(name+"_loss")
+    loss = torch.load(name+"_loss", weights_only=False)
     real_rewards = np.load(name+"_real_rewards.npy")
     real_iterations = np.load(name+"_real_iterations.npy")
 
@@ -16,7 +16,7 @@ if __name__ == "__main__":
     n_record = real_rewards.shape[0]
     record_period = n_iter//n_record
     slice_size = 500
-    
+
     rewards = np.reshape(rewards, (n_iter//slice_size, slice_size)).mean(axis=1)
     iterations = np.reshape(iterations, (n_iter//slice_size, slice_size)).mean(axis=1)
     loss = np.reshape(loss, (n_iter//slice_size, slice_size)).mean(axis=1)

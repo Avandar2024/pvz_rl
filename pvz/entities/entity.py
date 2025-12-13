@@ -6,7 +6,7 @@ class Entity():
 
     def __init__(self, lane):
         self.hp = self.MAX_HP
-        
+
         assert(lane>=0)
         assert(lane<config.N_LANES)
         self.lane = lane

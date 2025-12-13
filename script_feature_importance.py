@@ -36,7 +36,7 @@ except Exception:
     # If full object load fails, try loading as a state-dict or weights-only file.
     # This will succeed if the file contains only tensors/state_dict.
     try:
-        agent = torch.load(load_path, map_location=DEVICE)
+        agent = torch.load(load_path, weights_only=False,map_location=DEVICE)
     except Exception:
         # Re-raise the original error if nothing worked
         raise
@@ -65,8 +65,8 @@ for episode_idx in range(n_ep):
 _grid_size = config.N_LANES * config.LANE_LENGTH
 
 obs = np.concatenate(obs)
-obs = np.array([np.concatenate([state[:_grid_size], 
-                       np.sum(state[_grid_size: 2 * _grid_size].reshape(-1, config.LANE_LENGTH), axis=1), 
+obs = np.array([np.concatenate([state[:_grid_size],
+                       np.sum(state[_grid_size: 2 * _grid_size].reshape(-1, config.LANE_LENGTH), axis=1),
                        state[2 * _grid_size:]]) for state in obs])
 
 n_obs = len(obs)

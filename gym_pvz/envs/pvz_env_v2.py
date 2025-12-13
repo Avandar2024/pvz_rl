@@ -5,21 +5,24 @@ import numpy as np
 
 MAX_ZOMBIE_HP = 10000
 MAX_SUN = 10000
-MAX_COOLDOWN = 20 # Potatomine/Wallnut
+MAX_COOLDOWN = 20  # Potatomine/Wallnut
+
 
 class PVZEnv_V2(gym.Env):
-    metadata = {'render.modes': ['human']}
+    metadata = {'render_modes': ['human']}
 
     def __init__(self):
-        self.plant_deck = {"sunflower": Sunflower, "peashooter": Peashooter, "wall-nut": Wallnut, "potatomine": Potatomine}
-        
+        self.plant_deck = {"sunflower": Sunflower, "peashooter": Peashooter, "wall-nut": Wallnut,
+                           "potatomine": Potatomine}
+
         self.action_space = Discrete(len(self.plant_deck) * config.N_LANES * config.LANE_LENGTH + 1)
         # self.action_space = MultiDiscrete([len(self.plant_deck), config.N_LANES, config.LANE_LENGTH]) # plant, lane, pos
         # The environment returns a flattened observation vector (concatenation of
         # plant-grid, zombie-grid, sun, and action_available). Declare a single
         # MultiDiscrete observation_space with matching nvec for each entry.
         grid_size = config.N_LANES * config.LANE_LENGTH
-        nvec = [len(self.plant_deck) + 1] * grid_size + [MAX_ZOMBIE_HP] * grid_size + [MAX_SUN] + [2] * len(self.plant_deck)
+        nvec = [len(self.plant_deck) + 1] * grid_size + [MAX_ZOMBIE_HP] * grid_size + [MAX_SUN] + [2] * len(
+            self.plant_deck)
         self.observation_space = MultiDiscrete(nvec)
 
         "Which plant on the cell, is the lane attacked, is there a mower on the lane"
@@ -29,50 +32,30 @@ class PVZEnv_V2(gym.Env):
         self._scene = Scene(self.plant_deck, WaveZombieSpawner())
         self._reward = 0
 
-
     def step(self, action):
         """
-
-        Parameters
-        ----------
-        action :
-
-        Returns
-        -------
-        ob, reward, episode_over, info : tuple
-            ob (object) :
-                an environment-specific object representing your observation of
-                the environment.
-            reward (float) :
-                amount of reward achieved by the previous action. The scale
-                varies between environments, but the goal is always to increase
-                your total reward.
-            episode_over (bool) :
-                whether it's time to reset the environment again. Most (but not
-                all) tasks are divided up into well-defined episodes, and done
-                being True indicates the episode has terminated. (For example,
-                perhaps the pole tipped too far, or you lost your last life.)
-            info (dict) :
-                 diagnostic information useful for debugging. It can sometimes
-                 be useful for learning (for example, it might contain the raw
-                 probabilities behind the environment's last state change).
-                 However, official evaluations of your agent are not allowed to
-                 use this for learning.
+        New Gymnasium step API:
+        return obs, reward, terminated, truncated, info
         """
-        
+        # Apply action
         self._take_action(action)
-        self._scene.step() #Minimum one step
+        self._scene.step()  # Minimum one step
         reward = self._scene.score
-        episode_over = self._scene._chrono > config.MAX_FRAMES
-        while((not self._scene.move_available()) and (not episode_over)):
+        # Check if episode ended by time limit
+        truncated = self._scene._chrono > config.MAX_FRAMES
+        # Continue stepping until another move is available
+        while (not self._scene.move_available()) and (not truncated):
             self._scene.step()
-            episode_over = self._scene._chrono > config.MAX_FRAMES
+            truncated = self._scene._chrono > config.MAX_FRAMES
             reward += self._scene.score
-        ob = self._get_obs()
-        episode_over = (episode_over) or (self._scene.lives <= 0)
+        # Observation
+        obs = self._get_obs()
+        # Episode ends if lives run out OR time limit reached
+        terminated = self._scene.lives <= 0
+        # Save reward for rendering
         self._reward = reward
-        return ob, reward, episode_over, {}
-    
+        return obs, reward, terminated, truncated, {}
+
     def _get_obs(self):
         obs_grid = np.zeros(config.N_LANES * config.LANE_LENGTH, dtype=int)
         zombie_grid = np.zeros(config.N_LANES * config.LANE_LENGTH, dtype=int)
@@ -80,10 +63,10 @@ class PVZEnv_V2(gym.Env):
             obs_grid[plant.lane * config.LANE_LENGTH + plant.pos] = self._plant_no[plant.__class__.__name__] + 1
         for zombie in self._scene.zombies:
             zombie_grid[zombie.lane * config.LANE_LENGTH + zombie.pos] += zombie.hp
-        action_available = np.array([self._scene.plant_cooldowns[plant_name]<=0 for plant_name in self.plant_deck])
-        action_available *= np.array([self._scene.sun >= self.plant_deck[plant_name].COST for plant_name in self.plant_deck])
-        return  np.concatenate([obs_grid, zombie_grid, [min(self._scene.sun, MAX_SUN)], action_available])
-            
+        action_available = np.array([self._scene.plant_cooldowns[plant_name] <= 0 for plant_name in self.plant_deck])
+        action_available *= np.array(
+            [self._scene.sun >= self.plant_deck[plant_name].COST for plant_name in self.plant_deck])
+        return np.concatenate([obs_grid, zombie_grid, [min(self._scene.sun, MAX_SUN)], action_available])
 
     def reset(self, seed=None, options=None):
         """Reset the environment.
@@ -94,7 +77,8 @@ class PVZEnv_V2(gym.Env):
         """
         # Note: seed/options are accepted for compatibility but not used here.
         self._scene = Scene(self.plant_deck, WaveZombieSpawner())
-        return self._get_obs()
+        obs = self._get_obs()
+        return obs, {}
 
     def render(self, mode='human'):
         print(self._scene)
@@ -104,7 +88,7 @@ class PVZEnv_V2(gym.Env):
         pass
 
     def _take_action(self, action):
-        if action>0: # action = 0 : no action
+        if action > 0:  # action = 0 : no action
             # action = no_plant + n_plants * (lane + n_lanes * pos)
             action -= 1
             a = action // len(self.plant_deck)

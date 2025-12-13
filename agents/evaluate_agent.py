@@ -22,7 +22,7 @@ def evaluate(env, agent, n_iter=1000, verbose = True):
     for episode_idx in range(n_iter):
         if verbose:
             print("\r{}/{}".format(episode_idx, n_iter), end="")
-        
+
         # play episodes
         summary = env.play(agent)
         summary['score'] = np.sum(summary["rewards"])
