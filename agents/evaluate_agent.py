@@ -4,6 +4,14 @@ import matplotlib.pyplot as plt
 # from game_render import render
 
 
+def _get_inner_env(env):
+    """解包 Gymnasium wrapper 以访问底层环境"""
+    inner = env
+    while hasattr(inner, 'env'):
+        inner = inner.env
+    return inner
+
+
 def evaluate(env, agent, n_iter=1000, verbose = True):
     sum_score = 0
     sum_iter = 0
@@ -27,15 +35,17 @@ def evaluate(env, agent, n_iter=1000, verbose = True):
         summary = env.play(agent)
         summary['score'] = np.sum(summary["rewards"])
 
-        base_env = _get_base_env(env.env)
+        # 获取底层环境
+        inner_env = _get_inner_env(env.env)
+
         score_hist.append(summary['score'])
-        iter_hist.append(min(base_env._scene._chrono, config.MAX_FRAMES))
-        
+        iter_hist.append(min(inner_env._scene._chrono, config.MAX_FRAMES))
+
         sum_score += summary['score']
-        sum_iter += min(base_env._scene._chrono, config.MAX_FRAMES)
-        
-        # if base_env._scene._chrono >= 1000:
-        #    render_info = base_env._scene._render_info
+        sum_iter += min(inner_env._scene._chrono, config.MAX_FRAMES)
+
+        # if env.env._scene._chrono >= 1000:
+        #    render_info = env.env._scene._render_info
         #    render(render_info)
         #    input()
         actions.append(summary['actions'])

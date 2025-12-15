@@ -39,13 +39,14 @@ class PVZEnv(gym.Env):
         reward = self._scene.score
 
         # Continue stepping until action is available again
-        while not self._scene.move_available():
+        terminated = self._scene.is_defeat() or self._scene.is_victory()
+        while (not self._scene.move_available()) and (not terminated):
             self._scene.step()
             reward += self._scene.score
+            terminated = self._scene.is_defeat() or self._scene.is_victory()
 
         obs = self._get_obs()
-        terminated = self._scene.lives <= 0
-        truncated = False  # No truncation logic in PVZ
+        truncated = False  # 胜利/失败由 is_victory/is_defeat 判定
 
         self._reward = reward
 

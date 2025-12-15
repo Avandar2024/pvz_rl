@@ -39,14 +39,15 @@ class PVZEnv_V1(gym.Env):
         self._scene.step()
         reward = self._scene.score
         # Continue stepping while no further action can be taken
-        while not self._scene.move_available():
+        terminated = self._scene.is_defeat() or self._scene.is_victory()
+        while (not self._scene.move_available()) and (not terminated):
             self._scene.step()
             reward += self._scene.score
+            terminated = self._scene.is_defeat() or self._scene.is_victory()
         # Read observation
         obs = self._get_obs()
         # Episode termination conditions
-        terminated = self._scene.lives <= 0  # Natural game over
-        truncated = False  # No artificial time limit used
+        truncated = False  # 胜利/失败由 is_victory/is_defeat 判定
         # Keep score for debug render()
         self._reward = reward
         return obs, reward, terminated, truncated, {}

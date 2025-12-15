@@ -2,7 +2,7 @@ import gymnasium as gym
 import pygame
 import torch
 
-from agents import ACAgent3, TrainerAC3
+from agents import PPOAgent, Trainer
 from agents import KeyboardAgent
 from agents import PlayerQ
 from agents import ReinforceAgentV2, PlayerV2
@@ -11,7 +11,7 @@ from pvz import config
 
 class PVZ():
     def __init__(self, render=True, max_frames=1000):
-        self.env = gym.make('gym_pvz:pvz-env-v2')
+        self.env = gym.make('gym_pvz:pvz-env-v3')
         self.max_frames = max_frames
         self.render = render
 
@@ -160,12 +160,12 @@ if __name__ == "__main__":
             agent = torch.load(load_path, weights_only=False, map_location="cpu")
 
     if agent_type == "AC":
-        env = TrainerAC3(render=False, max_frames=500 * config.FPS)
-        agent = ACAgent3(
+        env = Trainer(render=False, max_frames=500 * config.FPS)
+        agent = PPOAgent(
             input_size=env.num_observations(),
-            possible_actions=env.get_actions()
+            possible_actions=list(range(env.num_actions()))
         )
-        agent.load("agents/agent_zoo/ac_policy_v1", "agents/agent_zoo/ac_value_v1")
+        agent.load("ppo_vec_agent.pth")
 
     if agent_type == "Keyboard":
         env = PlayerV2(render=True, max_frames=500 * config.FPS)

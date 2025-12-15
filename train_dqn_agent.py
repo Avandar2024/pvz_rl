@@ -1,11 +1,15 @@
 import gymnasium as gym
 from agents.dqn_agent import experienceReplayBuffer_DQN, DQNAgent, QNetwork_DQN
 import torch
-
+import argparse
 
 
 if __name__ == "__main__":
-    n_iter = 100000
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--episodes", type=int, default=100000, help="训练episode数量")
+    args = parser.parse_args()
+    
+    n_iter = args.episodes
     env = gym.make('gym_pvz:pvz-env-v2')
     nn_name = input("Save name: ")
     buffer = experienceReplayBuffer_DQN(memory_size=100000, burn_in=10000)

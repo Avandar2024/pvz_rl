@@ -3,7 +3,6 @@ import torch
 import gymnasium as gym
 from pvz import config
 from copy import deepcopy
-from collections import namedtuple, deque
 import numpy as np
 from .threshold import Threshold
 
@@ -76,10 +75,15 @@ class QNetwork(nn.Module):
             qvals[np.logical_not(mask)] = qvals.min()
             return torch.max(qvals, dim=-1)[1].item()
 
-    def get_qvals(self, state):
-        if type(state) is tuple:
-            state = np.array([np.ravel(s) for s in state])
-            state_t = torch.FloatTensor(state).to(device=self.device)
+    def get_qvals(self, state, use_zombienet=True):
+        # Historical code used tuples-of-1D states for batches; support both tuple batches and 2D ndarrays.
+        if isinstance(state, tuple):
+            state_arr = np.asarray([np.ravel(s) for s in state], dtype=np.float32)
+        else:
+            state_arr = np.asarray(state, dtype=np.float32)
+
+        if state_arr.ndim == 2:
+            state_t = torch.as_tensor(state_arr, dtype=torch.float32, device=self.device)
             zombie_grid = state_t[:, self._grid_size:(2 * self._grid_size)].reshape(-1, config.LANE_LENGTH)
             plant_grid = state_t[:, :self._grid_size]
             if self.use_zombienet:
@@ -88,9 +92,9 @@ class QNetwork(nn.Module):
                 zombie_grid = torch.sum(zombie_grid, axis=1).view(-1, config.N_LANES)
             if self.use_gridnet:
                 plant_grid = self.gridnet(plant_grid)
-            state_t = torch.cat([plant_grid, zombie_grid, state_t[:,2 * self._grid_size:]], axis=1)
+            state_t = torch.cat([plant_grid, zombie_grid, state_t[:, 2 * self._grid_size:]], axis=1)
         else:
-            state_t = torch.FloatTensor(state).to(device=self.device)
+            state_t = torch.as_tensor(state_arr, dtype=torch.float32, device=self.device)
             zombie_grid = state_t[self._grid_size:(2 * self._grid_size)].reshape(-1, config.LANE_LENGTH)
             plant_grid = state_t[:self._grid_size]
             if self.use_zombienet:
@@ -128,8 +132,10 @@ class DDQNAgent:
         # self.threshold = Threshold(seq_length = 100000, start_epsilon=1.0,
         #                   end_epsilon=0.2,interpolation='sinusoidal',
         #                   periods=np.floor(n_iter/100))
-        self.threshold = Threshold(seq_length = 100000, start_epsilon=1.0, interpolation="exponential",
-                           end_epsilon=0.05)
+        # 减慢epsilon衰减，给模型更多探索时间
+        # end_epsilon提高到0.1，保持一定随机探索
+        self.threshold = Threshold(seq_length = n_iter, start_epsilon=1.0, interpolation="exponential",
+                           end_epsilon=0.1)
         self.epsilon = 0
         self.batch_size = batch_size
         self.window = 100
@@ -205,7 +211,7 @@ class DDQNAgent:
         while training:
             self.rewards = 0
             done = False
-            while done == False:
+            while not done:
                 self.epsilon = self.threshold.epsilon(ep)
                 done = self.take_step(mode='train')
                 # Update network
@@ -254,8 +260,6 @@ class DDQNAgent:
 
 
     def calculate_loss(self, batch):
-        full_mask = np.full(self.env.action_space.n, True)
-
         states, actions, rewards, dones, next_states = [i for i in batch]
         rewards_t = torch.FloatTensor(rewards).to(device=self.network.device).reshape(-1,1)
         actions_t = torch.LongTensor(np.array(actions)).to(device=self.network.device).reshape(-1,1)
@@ -280,6 +284,9 @@ class DDQNAgent:
         return loss
 
     def update(self):
+        # 当不进行 burn-in 预填充（或早期样本不足）时，跳过更新直到样本量够一个 batch。
+        if getattr(self.buffer, "_size", 0) < self.batch_size:
+            return
         self.network.optimizer.zero_grad()
         batch = self.buffer.sample_batch(batch_size=self.batch_size)
         loss = self.calculate_loss(batch)
@@ -293,7 +300,7 @@ class DDQNAgent:
         del batch, loss
 
     def _transform_observation(self, observation):
-        observation = observation.astype(np.float64)
+        observation = observation.astype(np.float32)
         observation = np.concatenate([observation[:self._grid_size],
         observation[self._grid_size:(2*self._grid_size)]/HP_NORM,
         [observation[2 * self._grid_size]/SUN_NORM],
@@ -346,25 +353,63 @@ class DDQNAgent:
 class experienceReplayBuffer:
 
     def __init__(self, memory_size=50000, burn_in=10000):
-        self.memory_size = memory_size
-        self.burn_in = burn_in
-        self.Buffer = namedtuple('Buffer',
-            field_names=['state', 'action', 'reward', 'done', 'next_state'])
-        self.replay_memory = deque(maxlen=memory_size)
+        self.memory_size = int(memory_size)
+        self.burn_in = int(burn_in)
+        self._idx = 0
+        self._size = 0
+        self._initialized = False
+        self.states = None
+        self.next_states = None
+        self.actions = None
+        self.rewards = None
+        self.dones = None
+
+    def _maybe_init(self, state):
+        state_arr = np.asarray(state, dtype=np.float32).ravel()
+        state_dim = int(state_arr.size)
+        self.states = np.zeros((self.memory_size, state_dim), dtype=np.float32)
+        self.next_states = np.zeros((self.memory_size, state_dim), dtype=np.float32)
+        self.actions = np.zeros((self.memory_size,), dtype=np.int32)
+        self.rewards = np.zeros((self.memory_size,), dtype=np.float32)
+        self.dones = np.zeros((self.memory_size,), dtype=np.bool_)
+        self._initialized = True
 
     def sample_batch(self, batch_size=32):
-        samples = np.random.choice(len(self.replay_memory), batch_size,
-                                   replace=False)
-        # Use asterisk operator to unpack deque 
-        batch = zip(*[self.replay_memory[i] for i in samples])
-        return batch
+        if not self._initialized or self._size == 0:
+            raise ValueError('Replay buffer is empty')
+        if self._size < batch_size:
+            raise ValueError(f'Not enough samples in buffer: size={self._size}, batch_size={batch_size}')
+
+        # 使用 replace=True 避免内存分配问题
+        indices = np.random.choice(self._size, int(batch_size), replace=True)
+        return (
+            self.states[indices],
+            self.actions[indices],
+            self.rewards[indices],
+            self.dones[indices],
+            self.next_states[indices],
+        )
 
     def append(self, state, action, reward, done, next_state):
-        self.replay_memory.append(
-            self.Buffer(state, action, reward, done, next_state))
+        if not self._initialized:
+            self._maybe_init(state)
+
+        state_arr = np.asarray(state, dtype=np.float32).ravel()
+        next_state_arr = np.asarray(next_state, dtype=np.float32).ravel()
+
+        self.states[self._idx] = state_arr
+        self.next_states[self._idx] = next_state_arr
+        self.actions[self._idx] = int(action)
+        self.rewards[self._idx] = float(reward)
+        self.dones[self._idx] = bool(done)
+
+        self._idx = (self._idx + 1) % self.memory_size
+        self._size = min(self._size + 1, self.memory_size)
 
     def burn_in_capacity(self):
-        return len(self.replay_memory) / self.burn_in
+        if self.burn_in <= 0:
+            return 1.0
+        return self._size / self.burn_in
 
 
 class PlayerQ():
@@ -396,7 +441,7 @@ class PlayerQ():
         return env.action_space.n
 
     def _transform_observation(self, observation):
-        observation = observation.astype(np.float64)
+        observation = observation.astype(np.float32)
         observation = np.concatenate([observation[:self._grid_size],
         observation[self._grid_size:(2*self._grid_size)]/HP_NORM,
         [observation[2 * self._grid_size]/SUN_NORM],
@@ -421,8 +466,6 @@ class PlayerQ():
         else:
             obs_raw = reset_res
         observation = self._transform_observation(obs_raw)
-
-        t = 0
 
         while(True):
             if(self.render):
