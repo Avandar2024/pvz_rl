@@ -20,7 +20,7 @@ def train(env, agent, n_iter=100000, n_record=500, n_save=1000):
         summary['score'] = np.sum(summary["rewards"])
 
         sum_score += summary['score']
-        sum_iter += min(env.env._scene._chrono, env.max_frames)
+        sum_iter += min(env.env_base._scene._chrono, env.max_frames)
 
         # Update agent
         agent.update(summary["observations"],summary["actions"],summary["rewards"])
