@@ -20,7 +20,12 @@ class QNetwork(nn.Module):
         super(QNetwork, self).__init__()
         self.device = device
 
-        self.n_inputs = config.N_LANES * config.LANE_LENGTH + config.N_LANES + len(env.plant_deck) + 1
+        # Unwrap environment to access plant_deck
+        unwrapped_env = env
+        while hasattr(unwrapped_env, 'env'):
+            unwrapped_env = unwrapped_env.env
+
+        self.n_inputs = config.N_LANES * config.LANE_LENGTH + config.N_LANES + len(unwrapped_env.plant_deck) + 1
         self.n_outputs = env.action_space.n
         self.actions = np.arange(env.action_space.n)
         self.learning_rate = learning_rate
@@ -49,6 +54,10 @@ class QNetwork(nn.Module):
         # Set to GPU if cuda is specified
         if self.device == 'cuda':
             self.network.cuda()
+            if use_zombienet:
+                self.zombienet.cuda()
+            if use_gridnet:
+                self.gridnet.cuda()
 
         self.optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.parameters()),
                                           lr=self.learning_rate)
@@ -62,11 +71,12 @@ class QNetwork(nn.Module):
         return action
 
     def get_greedy_action(self, state, mask):
-        qvals = self.get_qvals(state)
-        qvals[np.logical_not(mask)] = qvals.min()
-        return torch.max(qvals, dim=-1)[1].item()
+        with torch.no_grad():
+            qvals = self.get_qvals(state)
+            qvals[np.logical_not(mask)] = qvals.min()
+            return torch.max(qvals, dim=-1)[1].item()
 
-    def get_qvals(self, state, use_zombienet=True):
+    def get_qvals(self, state):
         if type(state) is tuple:
             state = np.array([np.ravel(s) for s in state])
             state_t = torch.FloatTensor(state).to(device=self.device)
@@ -210,7 +220,7 @@ class DDQNAgent:
                 if done:
                     ep += 1
                     self.training_rewards.append(self.rewards)
-                    self.training_loss.append(np.mean(self.update_loss))
+                    self.training_loss.append(np.mean(self.update_loss) if len(self.update_loss) > 0 else 0.0)
                     self.update_loss = []
                     mean_rewards = np.mean(
                         self.training_rewards[-self.window:])
@@ -237,6 +247,9 @@ class DDQNAgent:
                         avg_score, avg_iter = _evaluate(self.player, self.network, n_iter=evaluate_n_iter, verbose=False)
                         self.real_iterations.append(avg_iter)
                         self.real_rewards.append(avg_score)
+                        # 定期清理CUDA缓存
+                        if self.network.device == 'cuda':
+                            torch.cuda.empty_cache()
 
 
 
@@ -245,22 +258,21 @@ class DDQNAgent:
 
         states, actions, rewards, dones, next_states = [i for i in batch]
         rewards_t = torch.FloatTensor(rewards).to(device=self.network.device).reshape(-1,1)
-        actions_t = torch.LongTensor(np.array(actions)).reshape(-1,1).to(
-            device=self.network.device)
-        dones_t = torch.ByteTensor(dones).to(device=self.network.device)
+        actions_t = torch.LongTensor(np.array(actions)).to(device=self.network.device).reshape(-1,1)
+        dones_t = torch.BoolTensor(dones).to(device=self.network.device)
 
         qvals = torch.gather(self.network.get_qvals(states), 1, actions_t) # The selected action already respects the mask
 
         #################################################################
         # DDQN Update
-        next_masks = np.array([self._get_mask(s) for s in next_states])
-        qvals_next_pred = self.network.get_qvals(next_states)
-        qvals_next_pred[np.logical_not(next_masks)] = qvals_next_pred.min()
-        next_actions = torch.max(qvals_next_pred, dim=-1)[1]
-        next_actions_t = torch.LongTensor(next_actions).reshape(-1,1).to(
-            device=self.network.device)
-        target_qvals = self.target_network.get_qvals(next_states)
-        qvals_next = torch.gather(target_qvals, 1, next_actions_t).detach()
+        with torch.no_grad():
+            next_masks = np.array([self._get_mask(s) for s in next_states])
+            qvals_next_pred = self.network.get_qvals(next_states)
+            qvals_next_pred[np.logical_not(next_masks)] = qvals_next_pred.min()
+            next_actions = torch.max(qvals_next_pred, dim=-1)[1]
+            next_actions_t = next_actions.reshape(-1, 1)
+            target_qvals = self.target_network.get_qvals(next_states)
+            qvals_next = torch.gather(target_qvals, 1, next_actions_t)
         #################################################################
         qvals_next[dones_t] = 0 # Zero-out terminal states
         expected_qvals = self.gamma * qvals_next + rewards_t
@@ -277,6 +289,8 @@ class DDQNAgent:
             self.update_loss.append(loss.detach().cpu().numpy())
         else:
             self.update_loss.append(loss.detach().numpy())
+        # 释放引用防止内存泄漏
+        del batch, loss
 
     def _transform_observation(self, observation):
         observation = observation.astype(np.float64)
