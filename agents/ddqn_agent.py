@@ -123,7 +123,7 @@ class DDQNAgent:
         # self.threshold = Threshold(seq_length = 100000, start_epsilon=1.0,
         #                   end_epsilon=0.2,interpolation='sinusoidal',
         #                   periods=np.floor(n_iter/100))
-        self.threshold = Threshold(seq_length = 100000, start_epsilon=1.0, interpolation="exponential",
+        self.threshold = Threshold(seq_length = n_iter, start_epsilon=1.0, interpolation="exponential",
                            end_epsilon=0.05)
         self.epsilon = 0
         self.batch_size = batch_size
