@@ -1,6 +1,6 @@
 FPS = 2
 
-MAX_FRAMES=400
+MAX_FRAMES=400  # 僵尸刷怪持续的帧数上限（刷怪结束后清场才算胜利）
 
 N_LANES = 5 # Height
 LANE_LENGTH = 9 # Width

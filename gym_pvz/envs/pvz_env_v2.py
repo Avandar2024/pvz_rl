@@ -41,17 +41,16 @@ class PVZEnv_V2(gym.Env):
         self._take_action(action)
         self._scene.step()  # Minimum one step
         reward = self._scene.score
-        # Check if episode ended by time limit
-        truncated = self._scene._chrono > config.MAX_FRAMES
         # Continue stepping until another move is available
-        while (not self._scene.move_available()) and (not truncated):
+        terminated = self._scene.is_defeat() or self._scene.is_victory()
+        truncated = False  # 胜利/失败由 is_victory/is_defeat 判定
+        while (not self._scene.move_available()) and (not terminated):
             self._scene.step()
-            truncated = self._scene._chrono > config.MAX_FRAMES
             reward += self._scene.score
+            terminated = self._scene.is_defeat() or self._scene.is_victory()
         # Observation
         obs = self._get_obs()
-        # Episode ends if lives run out OR time limit reached
-        terminated = self._scene.lives <= 0
+        # 终局：场上僵尸被清空（胜利）或基地被攻破（失败）
         # Save reward for rendering
         self._reward = reward
         return obs, reward, terminated, truncated, {}
