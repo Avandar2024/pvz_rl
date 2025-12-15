@@ -59,6 +59,8 @@ def train_vec(num_envs=32, n_iter=1000, n_steps=1024):
         mini_batch_size=256
     )
     
+    dummy_env.compile_agent_network(agent)
+    
     obs, _ = envs.reset()
     obs = transform_observation_batch(obs, grid_size)
     
@@ -109,7 +111,7 @@ def train_vec(num_envs=32, n_iter=1000, n_steps=1024):
     plt.savefig("training_vec_plot.png")
     plt.close()
     
-    agent.save("ppo_vec_agent_model.pth")
+    agent.save("ppo_vec_agent_model_2.pth")
 
     envs.close()
 

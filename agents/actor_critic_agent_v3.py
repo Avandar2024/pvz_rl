@@ -104,7 +104,8 @@ class PPOAgent():
             state_tensor = state_tensor.unsqueeze(0)
             
         action_logits, value = self.network(state_tensor)
-        value = value.squeeze(-1)
+        # Clone value to avoid CUDA Graph memory overwrite issues
+        value = value.clone().squeeze(-1)
         
         m = Categorical(logits=action_logits)
         action = m.sample()
@@ -251,6 +252,13 @@ class Trainer():
 
         # 剥离可能存在的 Wrapper 以获取原始环境属性
         self.env_base = self.env.unwrapped
+        
+    def compile_agent_network(self, agent):
+        """编译 PPO Agent 中的 ActorCriticNetwork"""
+        # 
+        if hasattr(agent.network, 'shared_trunk') and torch.cuda.is_available():
+             print("Compiling ActorCriticNetwork for performance...")
+             agent.network = torch.compile(agent.network, fullgraph=True, mode="reduce-overhead")
 
     def num_observations(self):
         """返回转换后的观察空间维度"""
@@ -260,6 +268,9 @@ class Trainer():
     def num_actions(self):
         """返回动作空间维度"""
         return self.env.action_space.n
+
+    def get_render_info(self):
+        return self.env_base._scene._render_info
 
     def _transform_observation(self, observation):
         """
