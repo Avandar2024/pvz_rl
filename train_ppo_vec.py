@@ -1,6 +1,5 @@
 import gymnasium as gym
 import numpy as np
-import cupy as cp
 import os
 from agents.actor_critic_agent_v3 import PPOAgent, Trainer
 from pvz import config
@@ -11,7 +10,7 @@ SUN_NORM = 200
 
 def transform_observation_batch(observations, grid_size):
     # observations: (N, D) numpy array
-    observations = cp.asarray(observations, dtype=cp.float32)
+    observations = np.asarray(observations, dtype=np.float32)
     
     # Grid part: [:, :grid_size]
     # Zombie grid part: [:, grid_size:2*grid_size]
@@ -20,7 +19,7 @@ def transform_observation_batch(observations, grid_size):
     # Reshape zombie grid to (N, N_LANES, LANE_LENGTH)
     zombie_grid = zombie_grid.reshape((-1, config.N_LANES, config.LANE_LENGTH))
     # Sum over lane length: (N, N_LANES)
-    zombie_lanes = cp.sum(zombie_grid, axis=2) / HP_NORM
+    zombie_lanes = np.sum(zombie_grid, axis=2) / HP_NORM
     
     # Sun value: [:, 2*grid_size] -> (N, 1)
     sun_val = (observations[:, 2*grid_size] / SUN_NORM).reshape(-1, 1)
@@ -29,7 +28,7 @@ def transform_observation_batch(observations, grid_size):
     rest = observations[:, 2*grid_size+1:]
     
     # Concatenate
-    new_obs = cp.concatenate([
+    new_obs = np.concatenate([
         observations[:, :grid_size],
         zombie_lanes,
         sun_val,
@@ -52,8 +51,8 @@ def train_vec(num_envs=32, n_iter=1000, n_steps=1024, checkpoint_interval=50):
     
     # Get dimensions
     dummy_env = Trainer(render=False)
-    input_size = dummy_env.num_observations()
-    possible_actions = list(range(dummy_env.num_actions()))
+    num_actions = dummy_env.num_actions()
+    possible_actions = list(range(num_actions))
     grid_size = dummy_env._grid_size
     
     agent = PPOAgent(
@@ -62,6 +61,7 @@ def train_vec(num_envs=32, n_iter=1000, n_steps=1024, checkpoint_interval=50):
     )
     
     dummy_env.compile_agent_network(agent)
+    dummy_env.close()
     
     obs, _ = envs.reset()
     obs = transform_observation_batch(obs, grid_size)

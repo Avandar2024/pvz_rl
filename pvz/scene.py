@@ -23,13 +23,15 @@ class Scene:
         self._timer = config.NATURAL_SUN_PRODUCTION_COOLDOWN * config.FPS - 1 # Natural production of sun
 
         self._chrono = 0
+        self._spawn_end_frame = config.MAX_FRAMES  # Stop spawning after this many frames
+        self._spawning_finished = False
 
         self.score = 0 # score
         self.lives = 1 # hp of the player (lives = 0: lossed battle)
 
         self._render_info = [{"zombies": [[] for _ in range(config.N_LANES)], "plants": [[] for _ in range(config.N_LANES)],
-                            "projectiles": [[] for _ in range(config.N_LANES)], "sun": self.sun,
-                            "score": self.score, "cooldowns": {name: 0 for name in self.plant_cooldowns}, "time":0}]
+                              "projectiles": [[] for _ in range(config.N_LANES)], "sun": self.sun,
+                              "score": self.score, "cooldowns": {name: 0 for name in self.plant_cooldowns}, "time":0}]
 
 
     def step(self):
@@ -43,7 +45,10 @@ class Scene:
         self._chrono += 1
         self.score = config.SURVIVAL * int((self._chrono + 1) % (config.FPS * config.SURVIVAL_STEP) == 0) + self.grid._mowers.sum()
 
-        self._zombie_spawner.spawn(self)
+        if not self._spawning_finished:
+            self._zombie_spawner.spawn(self)
+            if self._chrono >= self._spawn_end_frame:
+                self._spawning_finished = True
         self._remove_dead_objects()
         self._timed_events()
 
@@ -122,6 +127,14 @@ class Scene:
                     return True
         return False
 
+    def is_victory(self):
+        """胜利条件：停止刷怪且场上没有僵尸。"""
+        return self._spawning_finished and len(self.zombies) == 0
+
+    def is_defeat(self):
+        """失败条件：生命值耗尽。"""
+        return self.lives <= 0
+
     def get_available_moves(self):
         empty_cells = self.grid.empty_cells()
         available_plants = [self.plant_deck[plant_name] for plant_name in self.plant_deck if (self.sun>=self.plant_deck[plant_name].COST) and (self.plant_cooldowns[plant_name] <= 0)]
@@ -155,4 +168,4 @@ class Scene:
 
 
         return ("\nZombies" + zombies_info + "\nPlants :\n" + grid_string + "\nCooldowns:\n"
-                    + str(self.plant_cooldowns) + "\nSun\n" + str(self.sun) + "\nLives" + str(self.lives) + "\nScore" + str(self.score) + "\nChrono" + str(self._chrono))
+                + str(self.plant_cooldowns) + "\nSun\n" + str(self.sun) + "\nLives" + str(self.lives) + "\nScore" + str(self.score) + "\nChrono" + str(self._chrono))
