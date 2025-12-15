@@ -20,7 +20,12 @@ class QNetwork(nn.Module):
         super(QNetwork, self).__init__()
         self.device = device
 
-        self.n_inputs = config.N_LANES * config.LANE_LENGTH + config.N_LANES + len(env.plant_deck) + 1
+        # 解包 Gymnasium wrapper 以访问自定义属性
+        inner_env = env
+        while hasattr(inner_env, 'env'):
+            inner_env = inner_env.env
+
+        self.n_inputs = config.N_LANES * config.LANE_LENGTH + config.N_LANES + len(inner_env.plant_deck) + 1
         self.n_outputs = env.action_space.n
         self.actions = np.arange(env.action_space.n)
         self.learning_rate = learning_rate
@@ -247,7 +252,7 @@ class DDQNAgent:
         rewards_t = torch.FloatTensor(rewards).to(device=self.network.device).reshape(-1,1)
         actions_t = torch.LongTensor(np.array(actions)).reshape(-1,1).to(
             device=self.network.device)
-        dones_t = torch.ByteTensor(dones).to(device=self.network.device)
+        dones_t = torch.BoolTensor(dones).to(device=self.network.device)
 
         qvals = torch.gather(self.network.get_qvals(states), 1, actions_t) # The selected action already respects the mask
 

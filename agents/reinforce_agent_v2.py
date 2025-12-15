@@ -145,6 +145,12 @@ class PlayerV2():
         grid = np.reshape(grid, (config.N_LANES, config.LANE_LENGTH))
         return np.sum(grid, axis=1)/HP_NORM
 
+    def _inner_env(self):
+        env = self.env
+        while hasattr(env, 'env'):
+            env = env.env
+        return env
+
     def play(self,agent, epsilon=0):
         """ Play one episode and collect observations and rewards """
 
@@ -158,7 +164,8 @@ class PlayerV2():
 
         t = 0
 
-        while(self.env._scene._chrono<self.max_frames):
+        inner = self._inner_env()
+        while(inner._scene._chrono < self.max_frames):
             if(self.render):
                 self.env.render()
             if np.random.random()<epsilon:
@@ -183,7 +190,7 @@ class PlayerV2():
         return summary
 
     def get_render_info(self):
-        return self.env._scene._render_info
+        return self._inner_env()._scene._render_info
 
 
 if __name__ == "__main__":
