@@ -42,6 +42,12 @@ class PVZEnv_V2(gym.Env):
         self._scene = Scene(self.plant_deck, WaveZombieSpawner())
         self._reward = 0
 
+        # 潜力函数权重 (默认值，可调整)
+        self.w_sun = 1.0
+        self.w_defense = 1.0
+        self.w_threat = 1.0
+        self.w_kills = 1.0
+
         # 植物类型权重 (从 config 导入)
         self._plant_defense_value = config.PLANT_DEFENSE_VALUES
 
@@ -61,10 +67,10 @@ class PVZEnv_V2(gym.Env):
         phi_kills = self._potential_kills()
 
         potential = (
-            config.W_SUN * phi_sun +
-            config.W_DEFENSE * phi_defense +
-            config.W_THREAT * phi_threat +
-            config.W_KILLS * phi_kills
+            self.w_sun * phi_sun +
+            self.w_defense * phi_defense +
+            self.w_threat * phi_threat +
+            self.w_kills * phi_kills
         )
         return potential
 
@@ -212,7 +218,6 @@ class PVZEnv_V2(gym.Env):
         # Continue stepping until another move is available
         terminated = self._scene.is_defeat() or self._scene.is_victory()
         truncated = False  # 胜利/失败由 is_victory/is_defeat 判定
-        while (not self._scene.move_available()) and (not terminated):
         while (not self._scene.move_available()) and (not truncated):
             prev_score = self._scene.score
             self._scene.step()

@@ -5,15 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Categorical
-
-# 假设 config 模块存在
-# from pvz import config
-# 临时定义 config 中必要的变量以使代码可运行
-class Config:
-    N_LANES = 5
-    LANE_LENGTH = 9
-    plant_deck = [1, 2, 3, 4] # 4种植物
-config = Config()
+from pvz import config
 
 HP_NORM = 100
 SUN_NORM = 200
@@ -75,7 +67,7 @@ class ActorCriticNetwork(nn.Module):
 # 2. PPO Agent (策略梯度算法)
 class PPOAgent():
     """Proximal Policy Optimization (PPO) Agent 的实现。"""
-    def __init__(self, lr=3e-4, gamma=0.99, eps_clip=0.2, K_epochs=10, gae_lambda=0.95, mini_batch_size=256):
+    def __init__(self, lr=3e-4, gamma=0.99, eps_clip=0.2, K_epochs=10, gae_lambda=0.95, mini_batch_size=256, possible_actions=None):
         
         self.device = get_device()
         print(f"Using device: {self.device}")
@@ -95,6 +87,7 @@ class PPOAgent():
         self.K_epochs = K_epochs
         self.gae_lambda = gae_lambda
         self.mini_batch_size = mini_batch_size
+        self.posible_actions = possible_actions
         
         self.reset_storage()
 
@@ -108,21 +101,27 @@ class PPOAgent():
         self.saved_values = []
 
     def _to_tensor(self, data, dtype=torch.float32, is_action=False):
-        """统一的数据转换和设备移动函数，处理 np.ndarray, CuPy, Tensor"""
-        if hasattr(data, 'get'): # CuPy
+        """统一的数据转换和设备移动函数，处理 np.ndarray, CuPy, Tensor
+
+        Ensures tensors moved to the agent device with a safe dtype (float32
+        on MPS), avoiding float64 which MPS doesn't support.
+        """
+        if hasattr(data, 'get'):  # CuPy
             data = data.get()
-        
-        if isinstance(data, np.ndarray):
-            tensor = torch.from_numpy(data)
-        elif isinstance(data, (int, float)):
-             tensor = torch.tensor(data, dtype=dtype)
-        else: # 假设是 Tensor
-            tensor = data
-        
+
+        # If user requested float64 on MPS, override to float32 to avoid errors
+        if self.device.type == 'mps' and dtype == torch.float64:
+            dtype = torch.float32
+
+        # Use torch.as_tensor for numpy / scalars to control dtype+device in one step
+        if isinstance(data, torch.Tensor):
+            tensor = data.to(device=self.device, dtype=dtype)
+        else:
+            tensor = torch.as_tensor(data, dtype=dtype, device=self.device)
+
         if is_action:
-             # 动作应为 long 类型
-            return tensor.long().to(self.device)
-        return tensor.to(self.device).to(dtype)
+            return tensor.long()
+        return tensor
 
     @torch.no_grad()
     def decide_action(self, state):
@@ -208,7 +207,7 @@ class PPOAgent():
                 if self.saved_rewards[0].dim() > 0:
                      next_value = torch.zeros_like(self.saved_rewards[0]).to(self.device)
                 else:
-                    next_value = torch.tensor(0.0, device=self.device)
+                    next_value = torch.tensor(0.0, device=self.device, dtype=torch.float32)
 
         # 2. 准备缓冲区数据 (形状: (Time, NumEnvs, ...))
         old_states = torch.stack(self.saved_states)
@@ -309,7 +308,6 @@ class PPOAgent():
         self.reset_storage()
         return (total_loss / n_updates, total_entropy / n_updates) if n_updates > 0 else (0, 0)
 
-    # ... (save/load 方法不变) ...
     def save(self, nn_name):
         torch.save(self.network.state_dict(), nn_name)
 
@@ -347,6 +345,10 @@ class Trainer():
         """返回转换后的观察空间维度"""
         # (植物网格) + (僵尸车道总血量) + (阳光值) + (卡牌组信息)
         return self._grid_size + config.N_LANES + len(config.plant_deck) + 1
+
+    def num_actions(self):
+        """返回环境的离散动作数。"""
+        return int(self.env.action_space.n)
 
     def _transform_observation(self, observation):
         """
@@ -388,9 +390,7 @@ class Trainer():
         进行一集游戏并与 Agent 交互。专为单环境交互设计。
         """
         observation, _info = self.env.reset()
-        # 检查是否为 CartPole 占位环境，如果是则跳过 _transform_observation
-        if self.env.spec.id.startswith('gym_pvz'):
-            observation = self._transform_observation(observation)
+        observation = self._transform_observation(observation)
         
         episode_steps = 0
         episode_reward = 0.0
@@ -407,8 +407,7 @@ class Trainer():
             next_observation, reward, terminated, truncated, info = self.env.step(action)
             done = bool(terminated or truncated)
             
-            if self.env.spec.id.startswith('gym_pvz'):
-                next_observation = self._transform_observation(next_observation)
+            next_observation = self._transform_observation(next_observation)
             
             # 存储奖励和终止状态 (Agent 负责内部转换)
             agent.store_reward_done(reward, done)
@@ -432,3 +431,7 @@ class Trainer():
         loss, entropy = agent.update(next_value)
         
         return episode_steps, episode_reward, loss, entropy
+
+    def close(self):
+        """释放底层环境资源。"""
+        self.env.close()
