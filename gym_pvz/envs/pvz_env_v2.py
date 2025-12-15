@@ -78,7 +78,7 @@ class PVZEnv_V2(gym.Env):
         
         # 向日葵数量 -> 未来阳光产出能力
         sunflower_count = sum(1 for p in self._scene.plants if p.__class__.__name__ == "Sunflower")
-        sunflower_bonus = sunflower_count * 0.1  # 每个向日葵加 0.1 的潜力
+        sunflower_bonus = sunflower_count * float(getattr(config, "SUNFLOWER_POTENTIAL_BONUS", 0.1))
         
         return current_sun_normalized + sunflower_bonus
     
@@ -88,28 +88,46 @@ class PVZEnv_V2(gym.Env):
         每行的植物覆盖情况 × 植物防御价值
         """
         defense_score = 0.0
-        
+
+        # 只有“被攻击的行”(有僵尸) 才重点奖励防线；未被攻击的行给很小的预备分
+        attacked_lanes = set()
+        grid = getattr(self._scene, "grid", None)
+        if grid is not None and hasattr(grid, "is_attacked"):
+            for lane in range(config.N_LANES):
+                try:
+                    if bool(grid.is_attacked(lane)):
+                        attacked_lanes.add(lane)
+                except Exception:
+                    pass
+
+        w_frontline = float(getattr(config, "DEFENSE_FRONTLINE_WEIGHT", 0.6))
+        w_value = float(getattr(config, "DEFENSE_VALUE_WEIGHT", 0.4))
+        prep_bonus = float(getattr(config, "DEFENSE_PREP_BONUS_PER_PLANT", 0.02))
+
         for lane in range(config.N_LANES):
             lane_plants = [p for p in self._scene.plants if p.lane == lane]
             if not lane_plants:
                 continue
-            
-            # 计算该行的防御价值
-            lane_defense = sum(
-                self._plant_defense_value.get(p.__class__.__name__, 1.0)
-                for p in lane_plants
-            )
-            
-            # 考虑植物位置：越靠前(pos越小)防御价值越高
-            position_bonus = sum(
-                (config.LANE_LENGTH - p.pos) / config.LANE_LENGTH * 0.5
-                for p in lane_plants
-            )
-            
-            defense_score += lane_defense + position_bonus
-        
-        # 归一化 (假设最大防御分约为每行3个高价值植物)
-        max_defense = config.N_LANES * 3 * 2.5
+
+            if lane not in attacked_lanes:
+                # 预备防御：非常小，避免鼓励“全图乱种”
+                defense_score += min(len(lane_plants), 2) * prep_bonus
+                continue
+
+            # 被攻击的行：奖励“有效前线”(frontline) 而不是靠房子堆叠
+            # PVZ 中僵尸从右往左走：pos 越大越靠近出生侧，也更像前线。
+            frontline_pos = max(int(getattr(p, "pos", 0)) for p in lane_plants)
+
+            for p in lane_plants:
+                ptype = p.__class__.__name__
+                base_val = float(self._plant_defense_value.get(ptype, 1.0))
+                pos = int(getattr(p, "pos", 0))
+                dist_to_front = max(0, frontline_pos - pos)
+                frontline_factor = 1.0 / (1.0 + dist_to_front)
+                defense_score += w_value * base_val + w_frontline * frontline_factor
+
+        # 粗归一化：保持该项量级稳定（避免压过稀疏胜负信号）
+        max_defense = max(1.0, config.N_LANES * 3.0 * (w_value * 2.5 + w_frontline * 1.0))
         return defense_score / max_defense
     
     def _potential_threat(self):
@@ -118,27 +136,29 @@ class PVZEnv_V2(gym.Env):
         僵尸越靠近房子，威胁越大（负潜力）
         使用指数惩罚: -Σ weight_j * exp(-decay * x_j)
         """
-        threat = 0.0
-        
+        # 改为“按行取最危险僵尸”，更贴近塔防失败机制：通常是一行被突破导致失败。
+        lane_max_threat = {}
         for zombie in self._scene.zombies:
             # 僵尸位置 (pos=0 是最左边/房子, pos=8 是最右边/出生点)
-            # 实际位置还要考虑 offset
             actual_pos = zombie.pos + zombie.get_offset()
-            
-            # 获取僵尸类型权重
+
             zombie_type = zombie.__class__.__name__
-            weight = self._zombie_threat_weight.get(zombie_type, 1.0)
-            
-            # 考虑僵尸血量 (血量越高威胁越大)
-            hp_factor = zombie.hp / zombie.MAX_HP
-            
-            # 指数惩罚：僵尸越靠近房子(pos越小)，惩罚越大
-            # exp(-decay * pos) 当 pos=0 时最大，pos=8 时最小
-            threat += weight * hp_factor * np.exp(-config.THREAT_DECAY * actual_pos)
-        
+            weight = float(self._zombie_threat_weight.get(zombie_type, 1.0))
+            hp_factor = float(zombie.hp) / float(zombie.MAX_HP)
+
+            # 越靠近房子(pos 越小)威胁越大
+            threat_val = weight * hp_factor * float(np.exp(-config.THREAT_DECAY * actual_pos))
+
+            lane = int(getattr(zombie, "lane", 0))
+            prev = lane_max_threat.get(lane, 0.0)
+            if threat_val > prev:
+                lane_max_threat[lane] = threat_val
+
+        threat = float(sum(lane_max_threat.values()))
+
         # 返回负值 (威胁越大，潜力越低)
-        # 归一化系数：假设最坏情况是5只满血铁桶僵尸在 pos=0
-        max_threat = 5 * 2.5 * 1.0 * np.exp(0)
+        # 归一化：近似最坏情况为每行 1 只满血铁桶僵尸贴脸
+        max_threat = max(1.0, config.N_LANES * 2.5 * 1.0 * float(np.exp(0)))
         return -threat / max_threat
     
     def _potential_kills(self):
@@ -149,7 +169,7 @@ class PVZEnv_V2(gym.Env):
         # 归一化：假设一局最多约 100 分加权击杀
         return min(self._weighted_kills, 100.0) / 100.0
     
-    def _compute_shaped_reward(self, base_reward, terminated, truncated):
+    def _compute_shaped_reward(self, base_reward, terminated, truncated, frames_advanced: int = 1):
         """
         计算塑形后的总奖励
         r_shaped = r_base + r_sparse + F_pbrs + r_survival
@@ -173,8 +193,14 @@ class PVZEnv_V2(gym.Env):
         elif truncated and self._scene.lives > 0:
             sparse_reward = config.REWARD_WIN   # 撑过了所有帧数，胜利
         
-        # 4. 存活奖励 (每步小正奖励)
-        survival_reward = config.REWARD_SURVIVAL_PER_FRAME if not terminated else 0.0
+        # 4. 存活奖励 (按“帧”而不是按“动作步”计)
+        # 本环境一次 step(action) 可能会推进多个 scene.step()（直到下一次 move_available）。
+        # REWARD_SURVIVAL_PER_FRAME 顾名思义应该按帧累计，否则奖励尺度会失真。
+        if terminated:
+            survival_reward = 0.0
+        else:
+            frames_advanced = max(1, int(frames_advanced))
+            survival_reward = float(config.REWARD_SURVIVAL_PER_FRAME) * float(frames_advanced)
         
         # 5. 更新前一状态潜力 (用于下一步计算)
         self._prev_potential = current_potential if not (terminated or truncated) else 0.0
@@ -195,15 +221,18 @@ class PVZEnv_V2(gym.Env):
         3. pbrs_reward: 基于潜力函数的塑形奖励 F = γΦ(s') - Φ(s)
         4. survival_reward: 每步存活的小奖励
         """
-        # 记录动作前的僵尸集合 (用于精确计算击杀)
+        # 记录动作前的僵尸集合 (用于精确计算击杀/进家)
         # 使用 id() 追踪每只僵尸对象
         prev_zombies = {id(z): z for z in self._scene.zombies}
+        lives_before = int(getattr(self._scene, "lives", 0))
         
+        chrono_before = int(self._scene._chrono)
+
         # Apply action
-        self._take_action(action)
+        invalid_action_penalty = float(self._take_action(action))
         prev_score = self._scene.score
         self._scene.step()  # Minimum one step
-        base_reward = self._scene.score - prev_score
+        base_reward = (self._scene.score - prev_score) + invalid_action_penalty
         
         # Check if episode ended by time limit
         truncated = self._scene._chrono > config.MAX_FRAMES
@@ -214,6 +243,9 @@ class PVZEnv_V2(gym.Env):
             self._scene.step()
             truncated = self._scene._chrono > config.MAX_FRAMES
             base_reward += self._scene.score - prev_score
+
+        chrono_after = int(self._scene._chrono)
+        frames_advanced = max(1, chrono_after - chrono_before)
         
         # Observation
         obs = self._get_obs()
@@ -229,6 +261,8 @@ class PVZEnv_V2(gym.Env):
         
         kills_this_step = 0
         weighted_kills_this_step = 0.0
+        escaped_this_step = 0
+        escaped_score_correction = 0.0
         
         for zid in disappeared_ids:
             zombie = prev_zombies[zid]
@@ -242,12 +276,27 @@ class PVZEnv_V2(gym.Env):
                 kill_value = config.ZOMBIE_KILL_VALUES.get(zombie_type, 1.0)
                 weighted_kills_this_step += kill_value
             # else: 进家了 (pos < 0)，不计入击杀
+            else:
+                escaped_this_step += 1
+                if bool(getattr(config, "CORRECT_ESCAPE_SCORE", True)):
+                    escaped_score_correction += float(getattr(zombie, "SCORE", 0.0))
         
         self._total_kills += kills_this_step
         self._weighted_kills += weighted_kills_this_step
+
+        # 重要纠正：Scene.score 在僵尸 hp=0 时加 zombie.SCORE，
+        # 但僵尸进家也会 hp=0，导致“输了也加分”。这里把进家的分数扣回去。
+        if escaped_score_correction:
+            base_reward -= escaped_score_correction
+
+        # 掉血惩罚：提供更直接的失败信号（即使还没 terminated 也有效）
+        lives_after = int(getattr(self._scene, "lives", 0))
+        life_lost = max(0, lives_before - lives_after)
+        if life_lost:
+            base_reward += float(getattr(config, "LIFE_LOSS_PENALTY", -500.0)) * float(life_lost)
         
         # 计算塑形后的总奖励
-        shaped_reward = self._compute_shaped_reward(base_reward, terminated, truncated)
+        shaped_reward = self._compute_shaped_reward(base_reward, terminated, truncated, frames_advanced=frames_advanced)
         
         # Save reward for rendering
         self._reward = shaped_reward
@@ -256,6 +305,11 @@ class PVZEnv_V2(gym.Env):
         info = {
             "base_reward": base_reward,
             "shaped_reward": shaped_reward,
+            "invalid_action_penalty": invalid_action_penalty,
+            "frames_advanced": int(frames_advanced),
+            "escaped_this_step": int(escaped_this_step),
+            "escaped_score_correction": float(escaped_score_correction),
+            "life_lost": int(life_lost),
             "total_kills": self._total_kills,
             "weighted_kills": self._weighted_kills,
             "sun": self._scene.sun,
@@ -320,9 +374,10 @@ class PVZEnv_V2(gym.Env):
             move = Move(self._plant_names[no_plant], lane, pos)
             if move.is_valid(self._scene):
                 move.apply_move(self._scene)
-            # else:
-            #     print("made a wrong move??")
-            #     input()
+                return 0.0
+            return float(getattr(config, "INVALID_ACTION_PENALTY", -1.0))
+
+        return 0.0
 
     def mask_available_actions(self):
         empty_cells, available_plants = self._scene.get_available_moves()

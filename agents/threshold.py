@@ -93,17 +93,23 @@ class Threshold():
 
     def _linear_point(self, index):
         """Computes a single point by linear interpolation"""
+        if self.seq_length <= 1:
+            return self.end_epsilon
         return self.start_epsilon + (self.end_epsilon-self.start_epsilon)/(self.seq_length-1) * index
 
 
     def _exponential_sequence(self):
         """Computes exponential sequence"""
+        if self.seq_length <= 1:
+            return [self.start_epsilon]
         decay_rate = (self.end_epsilon/self.start_epsilon)**(1/(self.seq_length-1))
         return [(self.start_epsilon * decay_rate**i) for i in range(self.seq_length)]
 
 
     def _exponential_point(self, index):
         """Computes a single point by exponential interpolation"""
+        if self.seq_length <= 1:
+            return self.end_epsilon
         decay_rate = (self.end_epsilon/self.start_epsilon)**(1/(self.seq_length-1))
         return self.start_epsilon * decay_rate**index
 
@@ -114,6 +120,8 @@ class Threshold():
         
         :param mini_epochs (optional): int, number of oscillations in sequence.
         """
+        if self.seq_length <= 1:
+            return [self.start_epsilon]
         decay_rate = (self.end_epsilon/self.start_epsilon)**(1/(self.seq_length-1))
         return [(self.start_epsilon * decay_rate**i * 0.5*(1+np.cos(2*math.pi*i*mini_epochs/(self.seq_length-1))))
                 for i in range(self.seq_length)]
@@ -125,6 +133,8 @@ class Threshold():
         
         :param mini_epochs (optional): int, number of oscillations in sequence.
         """
+        if self.seq_length <= 1:
+            return self.end_epsilon
         decay_rate = (self.end_epsilon/self.start_epsilon)**(1/(self.seq_length-1))
         return self.start_epsilon * decay_rate**index * 0.5*(1+np.cos(2*math.pi*index*mini_epochs/(self.seq_length-1)))
 

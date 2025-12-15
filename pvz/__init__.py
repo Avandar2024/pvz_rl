@@ -7,3 +7,4 @@ from .entities.plants.potatomine import Potatomine
 from .entities.zombies.basic_zombie_spawner import BasicZombieSpawner
 from .entities.zombies.wave_zombie_spawner import WaveZombieSpawner
 from . import config
+from . import reward_config

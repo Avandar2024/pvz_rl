@@ -23,3 +23,8 @@ safe_register(
     id='pvz-env-v2',
     entry_point='gym_pvz.envs:PVZEnv_V2'
 )
+
+safe_register(
+    id='pvz-env-v3',
+    entry_point='gym_pvz.envs:PVZEnv_V3'
+)

@@ -128,8 +128,10 @@ class DDQNAgent:
         # self.threshold = Threshold(seq_length = 100000, start_epsilon=1.0,
         #                   end_epsilon=0.2,interpolation='sinusoidal',
         #                   periods=np.floor(n_iter/100))
+        # 减慢epsilon衰减，给模型更多探索时间
+        # end_epsilon提高到0.1，保持一定随机探索
         self.threshold = Threshold(seq_length = n_iter, start_epsilon=1.0, interpolation="exponential",
-                           end_epsilon=0.05)
+                           end_epsilon=0.1)
         self.epsilon = 0
         self.batch_size = batch_size
         self.window = 100
@@ -220,7 +222,7 @@ class DDQNAgent:
                 if done:
                     ep += 1
                     self.training_rewards.append(self.rewards)
-                    self.training_loss.append(np.mean(self.update_loss))
+                    self.training_loss.append(np.mean(self.update_loss) if len(self.update_loss) else 0.0)
                     self.update_loss = []
                     mean_rewards = np.mean(
                         self.training_rewards[-self.window:])
@@ -274,6 +276,9 @@ class DDQNAgent:
         return loss
 
     def update(self):
+        # 当不进行 burn-in 预填充（或早期样本不足）时，跳过更新直到样本量够一个 batch。
+        if getattr(self.buffer, "_size", 0) < self.batch_size:
+            return
         self.network.optimizer.zero_grad()
         batch = self.buffer.sample_batch(batch_size=self.batch_size)
         loss = self.calculate_loss(batch)
@@ -365,7 +370,8 @@ class experienceReplayBuffer:
         if self._size < batch_size:
             raise ValueError(f'Not enough samples in buffer: size={self._size}, batch_size={batch_size}')
 
-        indices = np.random.choice(self._size, int(batch_size), replace=False)
+        # 使用 replace=True 避免内存分配问题
+        indices = np.random.choice(self._size, int(batch_size), replace=True)
         return (
             self.states[indices],
             self.actions[indices],

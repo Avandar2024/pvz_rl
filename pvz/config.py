@@ -1,4 +1,4 @@
-# ==================== 游戏基础参数 ====================
+﻿# ==================== 游戏基础参数 ====================
 FPS = 2                     # 游戏帧率
 MAX_FRAMES = 400            # 最大游戏帧数 (超过则胜利)
 
@@ -21,56 +21,18 @@ SCORE_ALIVE_PLANT = 0       # 每帧每株存活植物得分
 SCORE_ALIVE_MOWER = 0       # 每帧每个存活割草机得分
 
 
-# ==================== 奖励塑形参数 (PBRS) ====================
-# 基于潜力函数的奖励塑形 (Potential-Based Reward Shaping)
-# 总奖励 = 基础奖励 + 稀疏奖励 + PBRS奖励 + 存活奖励
-# PBRS奖励 F = γ * Φ(s') - Φ(s)
-# 潜力函数 Φ(s) = w_sun*Φ_sun + w_defense*Φ_defense + w_threat*Φ_threat + w_kills*Φ_kills
+# ==================== 奖励函数参数 ====================
+# 所有奖励相关参数已移至 reward_config.py
+# 请使用: from pvz import reward_config
+# 或在环境中: from pvz import reward_config as rcfg
+#
+# 为了向后兼容，延迟导入（避免循环导入和启动时阻塞）
+def _load_reward_config():
+    try:
+        from . import reward_config as _rcfg
+        globals().update({k: v for k, v in _rcfg.__dict__.items() if not k.startswith('_')})
+    except (ImportError, Exception):
+        pass
 
-# --- 潜力函数权重 ---
-# 调大某项权重 → 更强调该方面的行为引导
-W_SUN = 0.5                 # 资源管理权重 (鼓励收集阳光、种向日葵)
-W_DEFENSE = 1.0             # 防御覆盖权重 (鼓励种植植物建立防线)
-W_THREAT = 2.0              # 威胁降低权重 (惩罚让僵尸靠近房子) [最重要]
-W_KILLS = 0.5               # 击杀奖励权重 (鼓励消灭僵尸)
+_load_reward_config()
 
-# --- 稀疏奖励 (关键节点的大奖励/惩罚) ---
-REWARD_WIN = 1000.0         # 通关胜利奖励 (撑过 MAX_FRAMES)
-REWARD_LOSE = -1000.0       # 失败惩罚 (僵尸进入房子) [与胜利对称，强调最终目标]
-
-# --- 密集奖励 ---
-REWARD_SURVIVAL_PER_FRAME = 0.1  # 每帧存活的小奖励 (鼓励活得更久)
-
-# --- PBRS 参数 ---
-GAMMA_PBRS = 0.99           # PBRS 折扣因子 (通常与 RL 算法的 γ 一致)
-
-# --- 归一化常数 (用于潜力函数计算) ---
-MAX_SUN_CAPACITY = 2000.0   # 阳光归一化上限
-THREAT_DECAY = 0.5          # 威胁惩罚指数衰减系数 (越大 → 越惩罚靠近房子的僵尸)
-
-# --- 植物防御价值 (用于 Φ_defense 计算) ---
-# 不同植物对防线的贡献权重
-PLANT_DEFENSE_VALUES = {
-    "Sunflower": 0.5,       # 向日葵：经济价值，防御较低
-    "Peashooter": 1.5,      # 豌豆射手：输出价值
-    "Wallnut": 2.0,         # 坚果墙：高防御价值
-    "Potatomine": 1.0,      # 土豆雷：爆发价值
-}
-
-# --- 僵尸威胁权重 (用于 Φ_threat 计算) ---
-# 不同僵尸类型的威胁程度
-ZOMBIE_THREAT_WEIGHTS = {
-    "Zombie": 1.0,          # 普通僵尸
-    "Zombie_cone": 1.5,     # 路障僵尸
-    "Zombie_bucket": 2.5,   # 铁桶僵尸 (高威胁)
-    "Zombie_flag": 1.0,     # 旗帜僵尸
-}
-
-# --- 僵尸击杀奖励权重 (用于 Φ_kills 计算) ---
-# 不同僵尸类型的击杀价值 (鼓励优先消灭高威胁僵尸)
-ZOMBIE_KILL_VALUES = {
-    "Zombie": 1.0,          # 普通僵尸
-    "Zombie_cone": 1.5,     # 路障僵尸
-    "Zombie_bucket": 3.0,   # 铁桶僵尸 (高击杀价值)
-    "Zombie_flag": 1.0,     # 旗帜僵尸
-}
