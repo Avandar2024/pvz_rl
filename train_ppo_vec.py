@@ -1,7 +1,7 @@
 import gymnasium as gym
 import numpy as np
 import cupy as cp
-import torch
+import os
 from agents.actor_critic_agent_v3 import PPOAgent, Trainer
 from pvz import config
 import matplotlib.pyplot as plt
@@ -42,10 +42,13 @@ def make_env():
     env = gym.make('gym_pvz:pvz-env-v2')
     return env
 
-def train_vec(num_envs=32, n_iter=1000, n_steps=1024):
+def train_vec(num_envs=32, n_iter=1000, n_steps=1024, checkpoint_interval=50):
     print(f"Training with {num_envs} environments...")
     # Create vector env
     envs = gym.vector.AsyncVectorEnv([make_env for _ in range(num_envs)])
+    
+    # Create checkpoints directory if it doesn't exist
+    os.makedirs("checkpoints", exist_ok=True)
     
     # Get dimensions
     dummy_env = Trainer(render=False)
@@ -54,7 +57,6 @@ def train_vec(num_envs=32, n_iter=1000, n_steps=1024):
     grid_size = dummy_env._grid_size
     
     agent = PPOAgent(
-        input_size=input_size,
         possible_actions=possible_actions,
         mini_batch_size=256
     )
@@ -66,6 +68,7 @@ def train_vec(num_envs=32, n_iter=1000, n_steps=1024):
     
     score_history = []
     loss_history = []
+    entropy_history = []
     
     # Track scores
     episode_scores = np.zeros(num_envs)
@@ -95,19 +98,32 @@ def train_vec(num_envs=32, n_iter=1000, n_steps=1024):
             obs = next_obs
             
         # Update
-        loss = agent.update(obs)
+        loss, entropy = agent.update(obs)
         loss_history.append(loss)
+        entropy_history.append(entropy)
         
         avg_score = np.mean(score_history[-100:]) if score_history else 0
-        print(f"Iteration {iteration}, Loss: {loss:.4f}, Avg Score (last 100): {avg_score:.2f}")
+        print(f"Iteration {iteration}, Loss: {loss:.4f}, Entropy: {entropy:.4f}, Avg Score (last 100): {avg_score:.2f}")
         
-    plt.figure(figsize=(10, 5))
-    plt.subplot(1, 2, 1)
+        if (iteration + 1) % checkpoint_interval == 0:
+            checkpoint_path = os.path.join("checkpoints", f"ppo_vec_agent_iter_{iteration+1}.pth")
+            agent.save(checkpoint_path)
+            print(f"Saved checkpoint to {checkpoint_path}")
+        
+    plt.figure(figsize=(15, 5))
+    plt.subplot(1, 3, 1)
     plt.plot(loss_history)
     plt.title("Loss")
-    plt.subplot(1, 2, 2)
-    plt.plot(score_history)
+    plt.subplot(1, 3, 2)
+    plt.plot(score_history, alpha=0.3, label='Raw')
+    if len(score_history) >= 100:
+        moving_avg = np.convolve(score_history, np.ones(100)/100, mode='valid')
+        plt.plot(range(99, len(score_history)), moving_avg, color='red', label='Avg (100)')
     plt.title("Scores")
+    plt.legend()
+    plt.subplot(1, 3, 3)
+    plt.plot(entropy_history)
+    plt.title("Entropy")
     plt.savefig("training_vec_plot.png")
     plt.close()
     
