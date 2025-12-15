@@ -23,7 +23,8 @@ if __name__ == "__main__":
         agent = ACAgent3(
             input_size=env.num_observations(), possible_actions=env.get_actions()
         )
-        agent.load("agents/agent_zoo/ac_policy_v1", "agents/agent_zoo/ac_value_v1")
+        # Note: Architecture changed, requires new model file
+        agent.load("agents/agent_zoo/ac_agent_model.pth")
 
     if agent_type == "DDQN":
         env = PlayerQ(render=False)

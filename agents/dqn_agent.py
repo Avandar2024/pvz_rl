@@ -367,8 +367,10 @@ class experienceReplayBuffer_DQN:
         return batch
 
     def append(self, state, action, reward, done, next_state):
+        state_arr = np.asarray(state, dtype=np.float32)
+        next_state_arr = np.asarray(next_state, dtype=np.float32)
         self.replay_memory.append(
-            self.Buffer(state, action, reward, done, next_state))
+            self.Buffer(state_arr, int(action), float(reward), bool(done), next_state_arr))
 
     def burn_in_capacity(self):
         return len(self.replay_memory) / self.burn_in
@@ -397,7 +399,7 @@ class PlayerQ_DQN():
         return self.env.action_space.n
 
     def _transform_observation(self, observation):
-        observation = observation.astype(np.float64)
+        observation = observation.astype(np.float32)
         observation = np.concatenate([observation[:self._grid_size],
         observation[self._grid_size:(2*self._grid_size)]/HP_NORM,
         [observation[2 * self._grid_size]/SUN_NORM],
