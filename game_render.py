@@ -60,7 +60,8 @@ def render(render_info):
     plant_sprite = {"peashooter": pygame.image.load("assets/peashooter_scaled.png").convert_alpha(),
                     "sunflower": pygame.image.load("assets/sunflower_scaled.png").convert_alpha(),
                     "wallnut": pygame.image.load("assets/wallnut_scaled.png").convert_alpha(),
-                    "potatomine": pygame.image.load("assets/potatomine_scaled.png").convert_alpha()}
+                    "potatomine": pygame.image.load("assets/potatomine_scaled.png").convert_alpha(),
+                    "potatomine_init": pygame.image.load("assets/PotatomineInit.png").convert_alpha()}
     projectile_sprite = {"pea": pygame.image.load("assets/pea.png").convert_alpha()}
     clock = pygame.time.Clock()
     cell_size = 75
@@ -85,14 +86,25 @@ def render(render_info):
         for lane in range(config.N_LANES):
             for zombie_name, pos, offset in frame_info["zombies"][lane]:
                 zombie_name = zombie_name.lower()
-                screen.blit(zombie_sprite[zombie_name],
-                            (offset_border + cell_size * (pos + offset) - zombie_sprite[zombie_name].get_width(),
-                             offset_border + lane * cell_size + offset_y - zombie_sprite[zombie_name].get_height()))
-            for plant_name, pos in frame_info["plants"][lane]:
+                screen.blit(zombie_sprite[zombie_name], (offset_border + cell_size * (pos + offset) - zombie_sprite[zombie_name].get_width(),
+                    offset_border + lane * cell_size + offset_y - zombie_sprite[zombie_name].get_height()))
+            for plant_data in frame_info["plants"][lane]:
+                # 解包植物数据
+                if len(plant_data) == 3:
+                    plant_name, pos, is_active = plant_data
+                else:
+                    plant_name, pos = plant_data
+                    is_active = None
+                
                 plant_name = plant_name.lower()
-                screen.blit(plant_sprite[plant_name], (offset_border + cell_size * pos,
-                                                       offset_border + lane * cell_size + offset_y - plant_sprite[
-                                                           plant_name].get_height()))
+                # 土豆地雷根据激活状态选择图片
+                if plant_name == "potatomine" and is_active is False:
+                    sprite_key = "potatomine_init"
+                else:
+                    sprite_key = plant_name
+                
+                screen.blit(plant_sprite[sprite_key], (offset_border + cell_size * pos, 
+                    offset_border + lane * cell_size + offset_y - plant_sprite[sprite_key].get_height()))
             for projectile_name, pos, offset in frame_info["projectiles"][lane]:
                 projectile_name = projectile_name.lower()
                 screen.blit(projectile_sprite[projectile_name],

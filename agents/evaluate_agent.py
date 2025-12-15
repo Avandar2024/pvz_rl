@@ -20,6 +20,13 @@ def evaluate(env, agent, n_iter=1000, verbose = True):
     n_iter = n_iter
     actions = []
 
+    # 解包所有wrapper
+    def _get_base_env(e):
+        base_env = e
+        while hasattr(base_env, 'env'):
+            base_env = base_env.env
+        return base_env
+
     for episode_idx in range(n_iter):
         if verbose:
             print("\r{}/{}".format(episode_idx, n_iter), end="")
