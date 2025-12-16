@@ -256,9 +256,10 @@ if __name__ == "__main__":
                     nn_name = input("Save name: ")
 
         if (episode_idx%n_evaluate == n_evaluate-1):
-            avg_score, avg_iter = evaluate(env, agent, n_iter_evaluation)
+            avg_score, avg_iter, win_rate, loss_rate, timeout_rate, wins, losses, timeouts = evaluate(env, agent, n_iter_evaluation)
             print("\n----------->Episode {}, mean score {}".format(episode_idx,avg_score))
             print("----------->n_iter {}".format(avg_iter))
+            print(f"----------->Win={win_rate:.1f}% ({wins}/{n_iter_evaluation}), Loss={loss_rate:.1f}% ({losses}/{n_iter_evaluation})")
             eval_score_plt.append(avg_score)
             eval_iter_plt.append(avg_iter)
             # input()

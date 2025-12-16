@@ -64,6 +64,7 @@ if __name__ == "__main__":
         use_gridnet=False,
         hidden_size=args.hidden
     )
+    net.to(device)  # 确保网络在正确的设备上
     
     # 打印网络结构
     print(f"\n=== Dueling DQN Network Architecture ===")

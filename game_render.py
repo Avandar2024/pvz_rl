@@ -12,7 +12,7 @@ from pvz import config
 
 class PVZ():
     def __init__(self, render=True, max_frames=1000):
-        self.env = gym.make('gym_pvz:pvz-env-v3')
+        self.env = gym.make('gym_pvz:pvz-env-v2')
         self.max_frames = max_frames
         self.render = render
 

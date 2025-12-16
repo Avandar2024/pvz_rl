@@ -260,6 +260,7 @@ class DDQNAgent:
                             self.player, self.network, n_iter=evaluate_n_iter, verbose=False)
                         self.real_iterations.append(avg_iter)
                         self.real_rewards.append(avg_score)
+                        self.eval_stats.append((wins, losses, timeouts, evaluate_n_iter))  # 保存胜率统计
                         
                         # 打印评估结果（包含胜率）
                         print(f"\n{'='*60}")
@@ -361,6 +362,7 @@ class DDQNAgent:
         np.save(nn_name+"_iterations", self.training_iterations)
         np.save(nn_name+"_real_rewards", self.real_rewards)
         np.save(nn_name+"_real_iterations", self.real_iterations)
+        np.save(nn_name+"_eval_stats", self.eval_stats)  # 保存评估胜率统计
         torch.save(self.training_loss, nn_name+"_loss")
     
     def get_best_model(self):
@@ -388,6 +390,7 @@ class DDQNAgent:
         self.training_iterations = []
         self.real_rewards = []
         self.real_iterations = []
+        self.eval_stats = []  # 保存评估时的胜率统计 [(wins, losses, timeouts, total), ...]
         self.update_loss = []
         self.mean_training_rewards = []
         self.mean_training_iterations = []
