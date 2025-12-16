@@ -1,631 +1,340 @@
-"""
-策略性奖励塑形环境 V3
-基于 PvZ 核心策略设计:
-1. 经济: 前期多种向日葵，放后排
-2. 防御: 响应式部署豌豆，僵尸来了再种
-3. 土豆: 处理紧急威胁，鼓励爆炸，惩罚浪费
-4. 坚果: 高压力时保护前排
-"""
-
 import gymnasium as gym
 from gymnasium.spaces import MultiDiscrete, Discrete
 from pvz import Scene, WaveZombieSpawner, Move, config, Sunflower, Peashooter, Wallnut, Potatomine
 import numpy as np
 
-try:
-    from pvz import reward_config as rcfg
-except ImportError:
-    from pvz import config as rcfg
-
+# 观测空间上限 (不常调整)
 MAX_ZOMBIE_HP = 10000
 MAX_SUN = 10000
+MAX_COOLDOWN = 20  # Potatomine/Wallnut
+
+# ==================== 奖励塑形参数从 config 导入 ====================
+# 所有可调参数集中在 pvz/config.py 中，便于统一管理
 
 
-class PVZEnv_V3(gym.Env):
-    """策略性奖励塑形的 PvZ 环境"""
+class PVZEnv_V2(gym.Env):
     metadata = {'render_modes': ['human']}
 
     def __init__(self):
-        self.plant_deck = {
-            "sunflower": Sunflower,
-            "peashooter": Peashooter,
-            "wall-nut": Wallnut,
-            "potatomine": Potatomine
-        }
+        self.plant_deck = {"sunflower": Sunflower, "peashooter": Peashooter, "wall-nut": Wallnut,
+                           "potatomine": Potatomine}
 
-        # PBRS 状态
+        # 用于 PBRS 的状态跟踪
         self._prev_potential = 0.0
         self._total_kills = 0
-        self._weighted_kills = 0.0
-        
-        # 土豆地雷追踪
-        self._potatomine_tracker = {}  # id -> {placed_frame, activated_frame, lane, pos}
-        
-        # 策略奖励累积
-        self._strategy_rewards = 0.0
+        self._weighted_kills = 0.0  # 按僵尸类型加权的击杀分
+        self._prev_zombie_ids = set()  # 用于精确追踪击杀 vs 进家
 
         self.action_space = Discrete(len(self.plant_deck) * config.N_LANES * config.LANE_LENGTH + 1)
-
+        # self.action_space = MultiDiscrete([len(self.plant_deck), config.N_LANES, config.LANE_LENGTH]) # plant, lane, pos
+        # The environment returns a flattened observation vector (concatenation of
+        # plant-grid, zombie-grid, sun, and action_available). Declare a single
+        # MultiDiscrete observation_space with matching nvec for each entry.
         grid_size = config.N_LANES * config.LANE_LENGTH
-        nvec = ([len(self.plant_deck) + 1] * grid_size +
-                [MAX_ZOMBIE_HP] * grid_size +
-                [MAX_SUN] +
-                [2] * len(self.plant_deck))
+        nvec = [len(self.plant_deck) + 1] * grid_size + [MAX_ZOMBIE_HP] * grid_size + [MAX_SUN] + [2] * len(
+            self.plant_deck)
         self.observation_space = MultiDiscrete(nvec)
 
-        self._plant_names = list(self.plant_deck.keys())
-        self._plant_classes = [self.plant_deck[name].__name__ for name in self.plant_deck]
-        self._plant_no = {cls: i for i, cls in enumerate(self._plant_classes)}
+        "Which plant on the cell, is the lane attacked, is there a mower on the lane"
+        self._plant_names = [plant_name for plant_name in self.plant_deck]
+        self._plant_classes = [self.plant_deck[plant_name].__name__ for plant_name in self.plant_deck]
+        self._plant_no = {self._plant_classes[i]: i for i in range(len(self._plant_names))}
         self._scene = Scene(self.plant_deck, WaveZombieSpawner())
         self._reward = 0
 
-    # ==================== 游戏阶段判断 ====================
-    
-    def _get_game_phase(self):
-        """返回当前游戏阶段: 'early', 'mid', 'late'"""
-        chrono = self._scene._chrono
-        early = getattr(rcfg, 'EARLY_GAME_THRESHOLD', 80)
-        mid = getattr(rcfg, 'MID_GAME_THRESHOLD', 200)
-        
-        if chrono < early:
-            return 'early'
-        elif chrono < mid:
-            return 'mid'
-        return 'late'
-    
-    def _get_lane_pressure(self, lane):
-        """计算某行的压力程度 (0=无压力, 1=高压力)"""
-        zombies_in_lane = [z for z in self._scene.zombies if z.lane == lane]
-        if not zombies_in_lane:
-            return 0.0
-        
-        # 找最靠近房子的僵尸
-        min_pos = min(z.pos + z.get_offset() for z in zombies_in_lane)
-        # 压力与距离成反比
-        pressure = 1.0 - (min_pos / config.LANE_LENGTH)
-        return max(0.0, min(1.0, pressure))
+        # 潜力函数权重 (默认值，可调整)
+        self.w_sun = 1.0
+        self.w_defense = 1.0
+        self.w_threat = 1.0
+        self.w_kills = 1.0
 
-    # ==================== 潜力函数 ====================
-    
+        # 植物类型权重 (从 config 导入)
+        self._plant_defense_value = config.PLANT_DEFENSE_VALUES
+
+        # 僵尸类型威胁权重 (从 config 导入)
+        self._zombie_threat_weight = config.ZOMBIE_THREAT_WEIGHTS
+
+    # ==================== 潜力函数实现 ====================
+
     def _compute_potential(self):
-        """计算总潜力 Φ(s)"""
-        phase = self._get_game_phase()
-        
+        """
+        计算当前状态的潜力函数 Φ(s)
+        Φ(s) = w1*Φ_sun + w2*Φ_defense + w3*Φ_threat + w4*Φ_kills
+        """
         phi_sun = self._potential_sun()
         phi_defense = self._potential_defense()
         phi_threat = self._potential_threat()
         phi_kills = self._potential_kills()
-        phi_strategy = self._potential_strategy()
-        
-        # 根据阶段调整权重
-        w_sun = getattr(rcfg, 'W_SUN', 2.0)
-        w_defense = getattr(rcfg, 'W_DEFENSE', 3.0)
-        w_threat = getattr(rcfg, 'W_THREAT', 5.0)
-        w_kills = getattr(rcfg, 'W_KILLS', 1.5)
-        w_strategy = getattr(rcfg, 'W_STRATEGY', 3.0)
-        
-        if phase == 'early':
-            # 前期: 经济和策略更重要
-            w_sun *= 1.5
-            w_strategy *= 1.3
-            w_defense *= 0.8
-        elif phase == 'late':
-            # 后期: 威胁和防御更重要
-            w_sun *= 0.6
-            w_threat *= 1.2
-            w_defense *= 1.2
-        
-        return (w_sun * phi_sun +
-                w_defense * phi_defense +
-                w_threat * phi_threat +
-                w_kills * phi_kills +
-                w_strategy * phi_strategy)
+
+        potential = (
+            self.w_sun * phi_sun +
+            self.w_defense * phi_defense +
+            self.w_threat * phi_threat +
+            self.w_kills * phi_kills
+        )
+        return potential
 
     def _potential_sun(self):
-        """资源管理潜力: 阳光 + 向日葵经济价值"""
-        max_sun = getattr(rcfg, 'MAX_SUN_CAPACITY', 800.0)
-        sf_bonus = getattr(rcfg, 'SUNFLOWER_POTENTIAL_BONUS', 0.2)
-        pos_reward = getattr(rcfg, 'SUNFLOWER_POSITION_REWARD', 0.15)
-        
-        sun_norm = min(self._scene.sun, max_sun) / max_sun
-        
-        sunflower_value = 0.0
-        for p in self._scene.plants:
-            if p.__class__.__name__ == "Sunflower":
-                # 基础价值
-                sunflower_value += sf_bonus
-                # 位置奖励: pos越小(越靠近房子)越安全
-                pos_factor = 1.0 - (p.pos / config.LANE_LENGTH)
-                sunflower_value += pos_reward * pos_factor
-        
-        return sun_norm + sunflower_value
+        """
+        资源管理潜力 Φ_sun(s)
+        包括: 当前阳光 + 向日葵数量带来的未来产出能力
+        """
+        # 当前阳光归一化
+        current_sun_normalized = min(self._scene.sun, config.MAX_SUN_CAPACITY) / config.MAX_SUN_CAPACITY
+
+        # 向日葵数量 -> 未来阳光产出能力
+        sunflower_count = sum(1 for p in self._scene.plants if p.__class__.__name__ == "Sunflower")
+        sunflower_bonus = sunflower_count * 0.1  # 每个向日葵加 0.1 的潜力
+
+        return current_sun_normalized + sunflower_bonus
 
     def _potential_defense(self):
-        """防御覆盖潜力: 安全缓冲距离 + 行覆盖"""
-        plant_values = getattr(rcfg, 'PLANT_DEFENSE_VALUES', {})
-        buffer_weight = getattr(rcfg, 'BUFFER_DISTANCE_WEIGHT', 0.2)
-        breach_weight = getattr(rcfg, 'BREACH_PENALTY_WEIGHT', 0.6)
-        lane_bonus = getattr(rcfg, 'LANE_COVERAGE_BONUS', 0.25)
-        
-        plants_by_lane = {lane: [] for lane in range(config.N_LANES)}
-        zombies_by_lane = {lane: [] for lane in range(config.N_LANES)}
-        
-        for p in self._scene.plants:
-            plants_by_lane[p.lane].append(p)
-        for z in self._scene.zombies:
-            zombies_by_lane[z.lane].append(z)
-        
+        """
+        防御覆盖潜力 Φ_defense(s)
+        每行的植物覆盖情况 × 植物防御价值
+        """
         defense_score = 0.0
-        defended_lanes = 0
-        
+
         for lane in range(config.N_LANES):
-            lane_plants = plants_by_lane[lane]
-            lane_zombies = zombies_by_lane[lane]
-            
-            # 只统计防御型植物
-            defense_plants = [p for p in lane_plants
-                            if p.__class__.__name__ in ("Peashooter", "Wallnut", "Potatomine")]
-            
-            if not defense_plants:
-                if lane_zombies:
-                    min_pos = min(z.pos + z.get_offset() for z in lane_zombies)
-                    defense_score -= breach_weight * (1.0 - min_pos / config.LANE_LENGTH)
+            lane_plants = [p for p in self._scene.plants if p.lane == lane]
+            if not lane_plants:
                 continue
-            
-            defended_lanes += 1
-            
-            # 防线强度
-            for p in defense_plants:
-                ptype = p.__class__.__name__
-                # 土豆只有激活后才有防御价值
-                if ptype == "Potatomine":
-                    if hasattr(p, 'attack_cooldown') and p.attack_cooldown <= 0:
-                        defense_score += plant_values.get(ptype, 1.0) * 0.1
-                else:
-                    defense_score += plant_values.get(ptype, 1.0) * 0.1
-            
-            # 安全缓冲
-            front_plant_pos = max(p.pos for p in defense_plants)
-            
-            if lane_zombies:
-                front_zombie_pos = min(z.pos + z.get_offset() for z in lane_zombies)
-                buffer = front_zombie_pos - front_plant_pos
-                
-                if buffer >= 0:
-                    defense_score += buffer_weight * (buffer / config.LANE_LENGTH)
-                else:
-                    defense_score += breach_weight * (buffer / config.LANE_LENGTH)
-        
-        defense_score += defended_lanes * lane_bonus / config.N_LANES
-        # 不要 clip 到 [-1, 1]，让防御收益更明显
-        return defense_score
+
+            # 计算该行的防御价值
+            lane_defense = sum(
+                self._plant_defense_value.get(p.__class__.__name__, 1.0)
+                for p in lane_plants
+            )
+
+            # 考虑植物位置：越靠前(pos越小)防御价值越高
+            position_bonus = sum(
+                (config.LANE_LENGTH - p.pos) / config.LANE_LENGTH * 0.5
+                for p in lane_plants
+            )
+
+            defense_score += lane_defense + position_bonus
+
+        # 归一化 (假设最大防御分约为每行3个高价值植物)
+        max_defense = config.N_LANES * 3 * 2.5
+        return defense_score / max_defense
 
     def _potential_threat(self):
-        """威胁潜力: 僵尸越近威胁越大"""
-        if not self._scene.zombies:
-            return 0.0
-        
-        threat_weights = getattr(rcfg, 'ZOMBIE_THREAT_WEIGHTS', {})
-        power = getattr(rcfg, 'THREAT_POWER', 2.5)
-        use_hp = getattr(rcfg, 'THREAT_HP_FACTOR', True)
-        
-        total_threat = 0.0
-        
+        """
+        威胁降低潜力 Φ_threat(s)
+        僵尸越靠近房子，威胁越大（负潜力）
+        使用指数惩罚: -Σ weight_j * exp(-decay * x_j)
+        """
+        threat = 0.0
+
         for zombie in self._scene.zombies:
+            # 僵尸位置 (pos=0 是最左边/房子, pos=8 是最右边/出生点)
+            # 实际位置还要考虑 offset
             actual_pos = zombie.pos + zombie.get_offset()
-            pos_danger = 1.0 - (actual_pos / config.LANE_LENGTH)
-            pos_danger = max(0.0, min(1.0, pos_danger))
-            
-            danger = pos_danger ** power
-            
-            ztype = zombie.__class__.__name__
-            weight = threat_weights.get(ztype, 1.0)
-            
-            hp_factor = (zombie.hp / zombie.MAX_HP) if use_hp else 1.0
-            
-            total_threat += weight * hp_factor * danger
-        
-        max_threat = config.N_LANES * 3.0
-        return -min(total_threat / max_threat, 1.0)
+
+            # 获取僵尸类型权重
+            zombie_type = zombie.__class__.__name__
+            weight = self._zombie_threat_weight.get(zombie_type, 1.0)
+
+            # 考虑僵尸血量 (血量越高威胁越大)
+            hp_factor = zombie.hp / zombie.MAX_HP
+
+            # 指数惩罚：僵尸越靠近房子(pos越小)，惩罚越大
+            # exp(-decay * pos) 当 pos=0 时最大，pos=8 时最小
+            threat += weight * hp_factor * np.exp(-config.THREAT_DECAY * actual_pos)
+
+        # 返回负值 (威胁越大，潜力越低)
+        # 归一化系数：假设最坏情况是5只满血铁桶僵尸在 pos=0
+        max_threat = 5 * 2.5 * 1.0 * np.exp(0)
+        return -threat / max_threat
 
     def _potential_kills(self):
-        """击杀潜力"""
-        max_kills = getattr(rcfg, 'MAX_KILLS_FOR_NORMALIZATION', 40.0)
-        return min(self._weighted_kills, max_kills) / max_kills
-
-    def _potential_strategy(self):
-        """策略性潜力: 评估植物位置是否符合策略"""
-        phase = self._get_game_phase()
-        strategy_score = 0.0
-        
-        # 按行整理僵尸
-        zombies_by_lane = {lane: [] for lane in range(config.N_LANES)}
-        for z in self._scene.zombies:
-            zombies_by_lane[z.lane].append(z)
-        
-        # 评估每个植物的位置
-        for plant in self._scene.plants:
-            ptype = plant.__class__.__name__
-            lane = plant.lane
-            pos = plant.pos
-            lane_has_zombie = len(zombies_by_lane[lane]) > 0
-            pressure = self._get_lane_pressure(lane)
-            
-            if ptype == "Sunflower":
-                strategy_score += self._evaluate_sunflower(pos, lane_has_zombie, pressure, phase)
-            elif ptype == "Peashooter":
-                strategy_score += self._evaluate_peashooter(pos, lane_has_zombie, pressure, phase)
-            elif ptype == "Wallnut":
-                strategy_score += self._evaluate_wallnut(pos, lane, lane_has_zombie, pressure)
-            elif ptype == "Potatomine":
-                strategy_score += self._evaluate_potatomine(plant, pos, lane_has_zombie, pressure)
-        
-        # 归一化
-        max_plants = 20
-        return strategy_score / max(len(self._scene.plants), 1) * (min(len(self._scene.plants), max_plants) / max_plants)
-
-    def _evaluate_sunflower(self, pos, lane_has_zombie, pressure, phase):
-        """评估向日葵位置"""
-        score = 0.0
-        ideal_pos = getattr(rcfg, 'SUNFLOWER_IDEAL_POS', 3)
-        good_bonus = getattr(rcfg, 'SUNFLOWER_GOOD_POS_BONUS', 0.3)
-        danger_penalty = getattr(rcfg, 'SUNFLOWER_DANGER_PENALTY', -0.4)
-        early_bonus = getattr(rcfg, 'SUNFLOWER_EARLY_GAME_BONUS', 0.5)
-        
-        # 前期种向日葵奖励
-        if phase == 'early':
-            score += early_bonus
-        
-        # 位置在后排（pos < ideal_pos）奖励
-        if pos < ideal_pos:
-            score += good_bonus
-        
-        # 在有僵尸的行且位置靠前：危险
-        if lane_has_zombie and pos >= 4:
-            score += danger_penalty
-        
-        return score
-
-    def _evaluate_peashooter(self, pos, lane_has_zombie, pressure, phase):
-        """评估豌豆射手位置"""
-        score = 0.0
-        reactive_bonus = getattr(rcfg, 'PEASHOOTER_REACTIVE_BONUS', 0.4)
-        premature_penalty = getattr(rcfg, 'PEASHOOTER_PREMATURE_PENALTY', -0.2)
-        ideal_min = getattr(rcfg, 'PEASHOOTER_IDEAL_POS_MIN', 2)
-        ideal_max = getattr(rcfg, 'PEASHOOTER_IDEAL_POS_MAX', 5)
-        
-        # 在有僵尸的行部署：响应式防御，好
-        if lane_has_zombie:
-            score += reactive_bonus
-        else:
-            # 前期在没僵尸的行提前部署：浪费
-            if phase == 'early':
-                score += premature_penalty
-        
-        # 理想位置奖励
-        if ideal_min <= pos <= ideal_max:
-            score += 0.1
-        
-        return score
-
-    def _evaluate_wallnut(self, pos, lane, lane_has_zombie, pressure):
-        """评估坚果墙位置"""
-        score = 0.0
-        high_pressure_bonus = getattr(rcfg, 'WALLNUT_HIGH_PRESSURE_BONUS', 0.6)
-        low_pressure_penalty = getattr(rcfg, 'WALLNUT_LOW_PRESSURE_PENALTY', -0.3)
-        frontline_pos = getattr(rcfg, 'WALLNUT_FRONTLINE_POS', 4)
-        frontline_bonus = getattr(rcfg, 'WALLNUT_FRONTLINE_BONUS', 0.4)
-        protect_bonus = getattr(rcfg, 'WALLNUT_PROTECT_BONUS', 0.3)
-        
-        # 高压力时放坚果：好
-        if lane_has_zombie and pressure > 0.5:
-            score += high_pressure_bonus
-        elif not lane_has_zombie:
-            # 没僵尸时放坚果：浪费
-            score += low_pressure_penalty
-        
-        # 放在前排：好
-        if pos >= frontline_pos:
-            score += frontline_bonus
-        
-        # 检查是否保护了该行其他植物
-        plants_behind = sum(1 for p in self._scene.plants 
-                          if p.lane == lane and p.pos < pos and p.__class__.__name__ != "Wallnut")
-        if plants_behind > 0:
-            score += protect_bonus
-        
-        return score
-
-    def _evaluate_potatomine(self, plant, pos, lane_has_zombie, pressure):
-        """评估土豆地雷"""
-        score = 0.0
-        emergency_bonus = getattr(rcfg, 'POTATOMINE_EMERGENCY_BONUS', 0.8)
-        
-        # 是否已激活
-        is_activated = hasattr(plant, 'attack_cooldown') and plant.attack_cooldown <= 0
-        
-        # 在高压力行放置土豆：紧急响应
-        if lane_has_zombie and pressure > 0.4:
-            score += emergency_bonus * pressure
-        
-        # 已激活的土豆在有僵尸的行：好
-        if is_activated and lane_has_zombie:
-            score += 0.3
-        
-        return score
-
-    # ==================== 即时奖励 ====================
-    
-    def _compute_placement_reward(self, plant_type, lane, pos):
-        """计算放置植物的即时奖励"""
-        reward = getattr(rcfg, 'PLANT_PLACEMENT_REWARD', 0.1)
-        phase = self._get_game_phase()
-        
-        zombies_in_lane = [z for z in self._scene.zombies if z.lane == lane]
-        lane_has_zombie = len(zombies_in_lane) > 0
-        pressure = self._get_lane_pressure(lane)
-        
-        if plant_type == "Sunflower":
-            ideal_pos = getattr(rcfg, 'SUNFLOWER_IDEAL_POS', 3)
-            if phase == 'early' and pos < ideal_pos:
-                reward += getattr(rcfg, 'SUNFLOWER_EARLY_GAME_BONUS', 0.5)
-            if lane_has_zombie and pos >= 5:
-                reward += getattr(rcfg, 'SUNFLOWER_DANGER_PENALTY', -0.4)
-                
-        elif plant_type == "Peashooter":
-            if lane_has_zombie:
-                reward += getattr(rcfg, 'PEASHOOTER_REACTIVE_BONUS', 0.4)
-            elif phase == 'early':
-                reward += getattr(rcfg, 'PEASHOOTER_PREMATURE_PENALTY', -0.2)
-                
-        elif plant_type == "Wallnut":
-            if lane_has_zombie and pressure > 0.5:
-                reward += getattr(rcfg, 'WALLNUT_HIGH_PRESSURE_BONUS', 0.6)
-            elif not lane_has_zombie:
-                reward += getattr(rcfg, 'WALLNUT_LOW_PRESSURE_PENALTY', -0.3)
-            if pos >= getattr(rcfg, 'WALLNUT_FRONTLINE_POS', 4):
-                reward += getattr(rcfg, 'WALLNUT_FRONTLINE_BONUS', 0.4)
-                
-        elif plant_type == "Potatomine":
-            if lane_has_zombie and pressure > 0.3:
-                reward += getattr(rcfg, 'POTATOMINE_EMERGENCY_BONUS', 0.8)
-        
-        return reward
-
-    def _check_potatomine_events(self, prev_plants, prev_zombies):
-        """检查土豆地雷事件并计算奖励"""
-        reward = 0.0
-        
-        current_plant_ids = {id(p) for p in self._scene.plants}
-        current_zombie_ids = {id(z) for z in self._scene.zombies}
-        
-        prev_potatomines = {id(p): p for p in prev_plants if p.__class__.__name__ == "Potatomine"}
-        
-        for pid, potato in prev_potatomines.items():
-            if pid not in current_plant_ids:
-                was_activated = hasattr(potato, 'attack_cooldown') and potato.attack_cooldown <= 0
-                was_used = hasattr(potato, 'used') and potato.used == 1
-                
-                if was_used:
-                    reward += getattr(rcfg, 'POTATOMINE_EXPLODE_BONUS', 2.0)
-                    
-                    if was_activated:
-                        reward += getattr(rcfg, 'POTATOMINE_QUICK_EXPLODE_BONUS', 0.5)
-                    
-                    disappeared_zombies = set(prev_zombies.keys()) - current_zombie_ids
-                    same_pos_kills = sum(1 for zid in disappeared_zombies 
-                                        if prev_zombies[zid].lane == potato.lane 
-                                        and prev_zombies[zid].pos == potato.pos)
-                    if same_pos_kills > 1:
-                        reward += getattr(rcfg, 'POTATOMINE_MULTI_KILL_BONUS', 1.5) * (same_pos_kills - 1)
-                else:
-                    reward += getattr(rcfg, 'POTATOMINE_WASTED_PENALTY', -1.5)
-        
-        return reward
-
-    # ==================== PBRS 奖励计算 ====================
-    
-    def _compute_shaped_reward(self, base_reward, terminated, truncated, frames_advanced=1):
-        """计算总奖励
-        
-        PBRS 理论: F(s,a,s') = gamma * Phi(s') - Phi(s)
-        终止状态: Phi(terminal) = 0
-        
-        修正: 不再在终止时扣除累积潜力，因为这会导致"策略越好，累积潜力越高，最终惩罚越大"的问题
-        改为: 终止时的 PBRS 为 0，让稀疏奖励 (win/lose) 主导终局评估
         """
-        gamma = getattr(rcfg, 'GAMMA_PBRS', 0.99)
-        
-        # 终止状态不计算 PBRS，避免扣除累积潜力
+        消灭进度潜力 Φ_kills(s)
+        按僵尸类型加权的击杀分 (铁桶僵尸价值更高)
+        """
+        # 归一化：假设一局最多约 100 分加权击杀
+        return min(self._weighted_kills, 100.0) / 100.0
+
+    def _compute_shaped_reward(self, base_reward, terminated, truncated):
+        """
+        计算塑形后的总奖励
+        r_shaped = r_base + r_sparse + F_pbrs + r_survival
+
+        其中 F_pbrs = γ * Φ(s') - Φ(s) (Potential-Based Reward Shaping)
+        """
+        # 1. 计算当前状态潜力
+        current_potential = self._compute_potential()
+
+        # 2. PBRS 塑形奖励: F = γΦ(s') - Φ(s)
+        # 注意：在终止状态，Φ(s') = 0
         if terminated or truncated:
-            pbrs_reward = 0.0
+            pbrs_reward = -self._prev_potential  # γ * 0 - Φ(s)
         else:
-            current_potential = self._compute_potential()
-            pbrs_reward = gamma * current_potential - self._prev_potential
-            self._prev_potential = current_potential
-        
+            pbrs_reward = config.GAMMA_PBRS * current_potential - self._prev_potential
+
+        # 3. 稀疏的大奖励
         sparse_reward = 0.0
         if terminated:
-            sparse_reward = getattr(rcfg, 'REWARD_LOSE', -100.0)
+            sparse_reward = config.REWARD_LOSE  # 僵尸进家了
         elif truncated and self._scene.lives > 0:
-            sparse_reward = getattr(rcfg, 'REWARD_WIN', 100.0)
-        
-        if terminated:
-            survival_reward = 0.0
-        else:
-            per_frame = getattr(rcfg, 'REWARD_SURVIVAL_PER_FRAME', 0.5)
-            survival_reward = per_frame * max(1, frames_advanced)
-        
-        # 终止时重置潜力
-        if terminated or truncated:
-            self._prev_potential = 0.0
-        
-        total = base_reward + sparse_reward + pbrs_reward + survival_reward + self._strategy_rewards
-        self._strategy_rewards = 0.0
-        
-        return total
+            sparse_reward = config.REWARD_WIN   # 撑过了所有帧数，胜利
 
-    # ==================== 环境接口 ====================
-    
+        # 4. 存活奖励 (每步小正奖励)
+        survival_reward = config.REWARD_SURVIVAL_PER_FRAME if not terminated else 0.0
+
+        # 5. 更新前一状态潜力 (用于下一步计算)
+        self._prev_potential = current_potential if not (terminated or truncated) else 0.0
+
+        # 总奖励
+        total_reward = base_reward + sparse_reward + pbrs_reward + survival_reward
+
+        return total_reward
+
     def step(self, action):
-        prev_plants = list(self._scene.plants)
+        """
+        New Gymnasium step API:
+        return obs, reward, terminated, truncated, info
+
+        奖励包含:
+        1. base_reward: 来自 Scene.score 的原始奖励 (击杀等)
+        2. sparse_reward: 胜利/失败的大奖励
+        3. pbrs_reward: 基于潜力函数的塑形奖励 F = γΦ(s') - Φ(s)
+        4. survival_reward: 每步存活的小奖励
+        """
+        # 记录动作前的僵尸集合 (用于精确计算击杀)
+        # 使用 id() 追踪每只僵尸对象
         prev_zombies = {id(z): z for z in self._scene.zombies}
-        lives_before = self._scene.lives
-        chrono_before = self._scene._chrono
-        
-        action_result = self._take_action(action)
-        invalid_penalty = action_result['penalty']
-        placement_reward = action_result['placement_reward']
-        
+
+        # Apply action
+        self._take_action(action)
         prev_score = self._scene.score
-        self._scene.step()
-        base_reward = (self._scene.score - prev_score) + invalid_penalty + placement_reward
-        
+        self._scene.step()  # Minimum one step
+        reward = self._scene.score
+        base_reward = self._scene.score - prev_score
+
+        # Check if episode ended by time limit
         truncated = self._scene._chrono > config.MAX_FRAMES
-        
-        while not self._scene.move_available() and not truncated:
+
+        # Continue stepping until another move is available
+        terminated = self._scene.is_defeat() or self._scene.is_victory()
+        truncated = False  # 胜利/失败由 is_victory/is_defeat 判定
+        while (not self._scene.move_available()) and (not truncated):
             prev_score = self._scene.score
             self._scene.step()
+            reward += self._scene.score
+            terminated = self._scene.is_defeat() or self._scene.is_victory()
             truncated = self._scene._chrono > config.MAX_FRAMES
             base_reward += self._scene.score - prev_score
-        
-        frames_advanced = max(1, self._scene._chrono - chrono_before)
-        terminated = self._scene.lives <= 0
-        
-        current_zombies = {id(z): z for z in self._scene.zombies}
-        disappeared = set(prev_zombies.keys()) - set(current_zombies.keys())
-        
-        kills_this_step = 0
-        weighted_kills = 0.0
-        escaped = 0
-        escape_correction = 0.0
-        
-        kill_values = getattr(rcfg, 'ZOMBIE_KILL_VALUES', {})
-        
-        for zid in disappeared:
-            zombie = prev_zombies[zid]
-            if zombie.pos >= 0:
-                kills_this_step += 1
-                ztype = zombie.__class__.__name__
-                kill_value = kill_values.get(ztype, 1.0)
-                weighted_kills += kill_value
-                # 即时击杀奖励 - 让有击杀的策略明显好于无击杀的
-                base_reward += kill_value * getattr(rcfg, 'KILL_REWARD_MULTIPLIER', 2.0)
-            else:
-                escaped += 1
-                if getattr(rcfg, 'CORRECT_ESCAPE_SCORE', True):
-                    escape_correction += getattr(zombie, 'SCORE', 0.0)
-        
-        self._total_kills += kills_this_step
-        self._weighted_kills += weighted_kills
-        
-        if escape_correction:
-            base_reward -= escape_correction
-        
-        life_lost = max(0, lives_before - self._scene.lives)
-        if life_lost:
-            base_reward += getattr(rcfg, 'LIFE_LOSS_PENALTY', -300.0) * life_lost
-        
-        potato_reward = self._check_potatomine_events(prev_plants, prev_zombies)
-        self._strategy_rewards += potato_reward
-        
-        shaped_reward = self._compute_shaped_reward(base_reward, terminated, truncated, frames_advanced)
-        
-        self._reward = shaped_reward
+
+        # Observation
         obs = self._get_obs()
-        
+        # 终局：场上僵尸被清空（胜利）或基地被攻破（失败）
+
+        # Episode ends if lives run out
+        terminated = self._scene.lives <= 0
+
+        # 更新击杀计数 (区分真正击杀 vs 进家)
+        current_zombies = {id(z): z for z in self._scene.zombies}
+
+        # 找出消失的僵尸
+        disappeared_ids = set(prev_zombies.keys()) - set(current_zombies.keys())
+
+        kills_this_step = 0
+        weighted_kills_this_step = 0.0
+
+        for zid in disappeared_ids:
+            zombie = prev_zombies[zid]
+            # 进家的僵尸 pos 会变成 -1 后被移除
+            # 被击杀的僵尸 hp 会变成 <=0 后被移除，但 pos >= 0
+            # 通过检查 zombie.pos 来区分
+            if zombie.pos >= 0:
+                # 被击杀 (hp <= 0 时移除，但 pos 还在场内)
+                kills_this_step += 1
+                zombie_type = zombie.__class__.__name__
+                kill_value = config.ZOMBIE_KILL_VALUES.get(zombie_type, 1.0)
+                weighted_kills_this_step += kill_value
+            # else: 进家了 (pos < 0)，不计入击杀
+
+        self._total_kills += kills_this_step
+        self._weighted_kills += weighted_kills_this_step
+
+        # 计算塑形后的总奖励
+        shaped_reward = self._compute_shaped_reward(base_reward, terminated, truncated)
+
+        # Save reward for rendering
+        self._reward = shaped_reward
+
+        # info 中包含诊断信息 (包括各潜力函数分量，便于调试)
         info = {
             "base_reward": base_reward,
             "shaped_reward": shaped_reward,
-            "placement_reward": placement_reward,
-            "potato_reward": potato_reward,
-            "invalid_penalty": invalid_penalty,
-            "frames_advanced": frames_advanced,
-            "escaped": escaped,
-            "life_lost": life_lost,
             "total_kills": self._total_kills,
             "weighted_kills": self._weighted_kills,
             "sun": self._scene.sun,
             "plants": len(self._scene.plants),
             "zombies": len(self._scene.zombies),
             "chrono": self._scene._chrono,
-            "game_phase": self._get_game_phase(),
+            # 潜力函数诊断
             "phi_sun": self._potential_sun(),
             "phi_defense": self._potential_defense(),
             "phi_threat": self._potential_threat(),
             "phi_kills": self._potential_kills(),
-            "phi_strategy": self._potential_strategy(),
             "potential": self._compute_potential(),
         }
-        
+
         return obs, shaped_reward, terminated, truncated, info
 
     def _get_obs(self):
         obs_grid = np.zeros(config.N_LANES * config.LANE_LENGTH, dtype=int)
         zombie_grid = np.zeros(config.N_LANES * config.LANE_LENGTH, dtype=int)
-        
         for plant in self._scene.plants:
-            obs_grid[plant.lane * config.LANE_LENGTH + plant.pos] = (
-                self._plant_no[plant.__class__.__name__] + 1
-            )
+            obs_grid[plant.lane * config.LANE_LENGTH + plant.pos] = self._plant_no[plant.__class__.__name__] + 1
         for zombie in self._scene.zombies:
             zombie_grid[zombie.lane * config.LANE_LENGTH + zombie.pos] += zombie.hp
-        
-        action_available = np.array([
-            self._scene.plant_cooldowns[name] <= 0
-            for name in self.plant_deck
-        ])
-        action_available *= np.array([
-            self._scene.sun >= self.plant_deck[name].COST
-            for name in self.plant_deck
-        ])
-        
-        return np.concatenate([
-            obs_grid,
-            zombie_grid,
-            [min(self._scene.sun, MAX_SUN)],
-            action_available
-        ])
+        action_available = np.array([self._scene.plant_cooldowns[plant_name] <= 0 for plant_name in self.plant_deck])
+        action_available *= np.array(
+            [self._scene.sun >= self.plant_deck[plant_name].COST for plant_name in self.plant_deck])
+        return np.concatenate([obs_grid, zombie_grid, [min(self._scene.sun, MAX_SUN)], action_available])
 
     def reset(self, seed=None, options=None):
+        """Reset the environment.
+
+        Accepts the newer Gymnasium reset signature (seed, options) for
+        compatibility. Returns the observation (old-style single return),
+        which is still accepted by Gymnasium's passive checker.
+        """
+        # Note: seed/options are accepted for compatibility but not used here.
         self._scene = Scene(self.plant_deck, WaveZombieSpawner())
+
+        # 重置 PBRS 状态
         self._total_kills = 0
         self._weighted_kills = 0.0
-        self._prev_potential = self._compute_potential()
-        self._potatomine_tracker = {}
-        self._strategy_rewards = 0.0
-        return self._get_obs(), {}
+        self._prev_potential = self._compute_potential()  # 初始状态的潜力
+
+        obs = self._get_obs()
+        return obs, {}
 
     def render(self, mode='human'):
         print(self._scene)
-        print(f"Reward: {self._reward:.2f}, Phase: {self._get_game_phase()}")
+        print("Score since last action: " + str(self._reward))
 
     def close(self):
         pass
 
     def _take_action(self, action):
-        """执行动作并返回奖励信息"""
-        result = {'penalty': 0.0, 'placement_reward': 0.0, 'plant_type': None}
-        
-        if action > 0:
+        if action > 0:  # action = 0 : no action
+            # action = no_plant + n_plants * (lane + n_lanes * pos)
             action -= 1
             a = action // len(self.plant_deck)
             no_plant = action - len(self.plant_deck) * a
             pos = a // config.N_LANES
             lane = a - pos * config.N_LANES
-            
-            plant_name = self._plant_names[no_plant]
-            plant_type = self._plant_classes[no_plant]
-            
-            move = Move(plant_name, lane, pos)
+            move = Move(self._plant_names[no_plant], lane, pos)
             if move.is_valid(self._scene):
                 move.apply_move(self._scene)
-                result['plant_type'] = plant_type
-                result['placement_reward'] = self._compute_placement_reward(plant_type, lane, pos)
-            else:
-                result['penalty'] = getattr(rcfg, 'INVALID_ACTION_PENALTY', -0.5)
-        
-        return result
+            # else:
+            #     print("made a wrong move??")
+            #     input()
 
     def mask_available_actions(self):
         empty_cells, available_plants = self._scene.get_available_moves()
