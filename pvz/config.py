@@ -14,25 +14,25 @@ NATURAL_SUN_PRODUCTION_COOLDOWN = 10  # 产出间隔 (秒)
 # 割草机
 MOWERS = False              # 是否启用割草机
 
-# 原始得分参数 (Scene.score 使用)
-SURVIVAL = 0                # 存活奖励基础值
-SURVIVAL_STEP = 20          # 存活奖励增加间隔 (秒)
-SCORE_ALIVE_PLANT = 0       # 每帧每株存活植物得分
-SCORE_ALIVE_MOWER = 0       # 每帧每个存活割草机得分
-
-
 # ==================== 奖励函数参数 ====================
 # 所有奖励相关参数已移至 reward_config.py
 # 请使用: from pvz import reward_config
 # 或在环境中: from pvz import reward_config as rcfg
 #
-# 为了向后兼容，延迟导入（避免循环导入和启动时阻塞）
+# 为了向后兼容，延迟导入（避免循环导入）
 def _load_reward_config():
     try:
         from . import reward_config as _rcfg
-        globals().update({k: v for k, v in _rcfg.__dict__.items() if not k.startswith('_')})
+        # 导出常用的奖励参数到 config 命名空间（向后兼容）
+        globals()['SURVIVAL'] = _rcfg.SURVIVAL_REWARD
+        globals()['SURVIVAL_STEP'] = _rcfg.SURVIVAL_STEP
+        globals()['SCORE_ALIVE_PLANT'] = _rcfg.PLANT_ALIVE_REWARD
+        globals()['SCORE_ALIVE_MOWER'] = _rcfg.MOWER_ALIVE_REWARD
     except (ImportError, Exception):
-        pass
+        # 默认值（如果 reward_config 不存在）
+        globals()['SURVIVAL'] = 0
+        globals()['SURVIVAL_STEP'] = 20
+        globals()['SCORE_ALIVE_PLANT'] = 0
+        globals()['SCORE_ALIVE_MOWER'] = 0
 
 _load_reward_config()
-

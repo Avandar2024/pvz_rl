@@ -1,6 +1,7 @@
 from agents import evaluate
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 
 # Import your agent
@@ -37,8 +38,9 @@ def train(env, agent, n_iter=100000, n_record=500, n_save=1000, n_evaluate=10000
 
         if (episode_idx%n_record == n_record-1):
             if save:
+                save_path = save_dir / nn_name
                 if sum_score >= best_score:
-                    agent.save(nn_name)
+                    agent.save(str(save_path))
                     best_score = sum_score
             print("---Episode {}, mean score {}".format(episode_idx,sum_score/n_record))
             print("---n_iter {}".format(sum_iter/n_record))
@@ -54,6 +56,9 @@ def train(env, agent, n_iter=100000, n_record=500, n_save=1000, n_evaluate=10000
                     save = True
                     best_score = 0
                     nn_name = input("Save name: ")
+                    # 创建保存目录
+                    save_dir = Path("agents/agent_zoo") / nn_name
+                    save_dir.mkdir(parents=True, exist_ok=True)
 
         # if (episode_idx%n_evaluate == n_evaluate-1):
         #     avg_score, avg_iter = evaluate(env, agent, n_iter_evaluation)

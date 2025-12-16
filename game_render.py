@@ -1,6 +1,7 @@
 import gymnasium as gym
 import pygame
 import torch
+from pathlib import Path
 
 from agents import PPOAgent, Trainer
 from agents import KeyboardAgent
@@ -147,7 +148,14 @@ if __name__ == "__main__":
 
     if agent_type == "DDQN":
         env = PlayerQ(render=False)
-        load_path = "agents/agent_zoo/dfq5_epsexp"
+        model_name = "dfq5_epsexp"
+        # 尝试从 agent_zoo 加载
+        model_path = Path("agents/agent_zoo") / model_name / model_name
+        if not model_path.exists():
+            # 备选: 直接使用旧路径
+            model_path = Path("agents/agent_zoo") / model_name
+        load_path = str(model_path)
+        
         # 自动选择设备：有GPU用GPU，没有用CPU
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         # Allowlist QNetwork for safe unpickling and load the full object.
@@ -169,7 +177,13 @@ if __name__ == "__main__":
             input_size=env.num_observations(),
             possible_actions=list(range(env.num_actions()))
         )
-        agent.load("ppo_vec_agent.pth")
+        # 尝试从 agent_zoo 加载
+        model_name = "ppo_vec_agent"
+        model_path = Path("agents/agent_zoo") / model_name / f"{model_name}.pth"
+        if not model_path.exists():
+            # 备选: 直接使用旧路径
+            model_path = Path("ppo_vec_agent.pth")
+        agent.load(str(model_path))
 
     if agent_type == "Keyboard":
         env = PlayerV2(render=True, max_frames=500 * config.FPS)

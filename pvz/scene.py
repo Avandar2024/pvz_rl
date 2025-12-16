@@ -43,7 +43,13 @@ class Scene:
             projectile.step(self)
 
         self._chrono += 1
-        self.score = config.SURVIVAL * int((self._chrono + 1) % (config.FPS * config.SURVIVAL_STEP) == 0) + self.grid._mowers.sum()
+        # 存活奖励计算
+        try:
+            from . import reward_config
+            survival_reward = reward_config.SURVIVAL_REWARD * int((self._chrono + 1) % (config.FPS * reward_config.SURVIVAL_STEP) == 0)
+        except (ImportError, AttributeError):
+            survival_reward = config.SURVIVAL * int((self._chrono + 1) % (config.FPS * config.SURVIVAL_STEP) == 0)
+        self.score = survival_reward + self.grid._mowers.sum()
 
         if not self._spawning_finished:
             self._zombie_spawner.spawn(self)

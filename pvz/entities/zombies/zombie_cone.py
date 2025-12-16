@@ -1,12 +1,17 @@
 from ... import config
 from .zombie import Zombie
 
-
+# 导入击杀奖励配置
+try:
+    from ... import reward_config
+    _CONE_KILL_REWARD = reward_config.ZOMBIE_CONE_KILL_REWARD
+except (ImportError, AttributeError):
+    _CONE_KILL_REWARD = 40  # 默认值
 
 class Zombie_cone(Zombie):
 
     MAX_HP = 560
-    SCORE = 40 # It will add 30 for the normal zombie kill
+    SCORE = _CONE_KILL_REWARD  # 击杀路障僵尸奖励
 
     def step(self, scene):
         if scene.grid.is_empty(self.lane, self.pos):

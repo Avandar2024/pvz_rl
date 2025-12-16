@@ -14,6 +14,7 @@ import gymnasium as gym
 from agents.dddqn_agent import experienceReplayBuffer, D3QNAgent, DuelingQNetwork
 import torch
 import argparse
+from pathlib import Path
 
 
 if __name__ == "__main__":
@@ -42,6 +43,11 @@ if __name__ == "__main__":
         nn_name = args.name
     else:
         nn_name = input("Save name: ")
+    
+    # 创建保存目录
+    save_dir = Path("agents/agent_zoo") / nn_name
+    save_dir.mkdir(parents=True, exist_ok=True)
+    save_path = save_dir / nn_name
     
     # 创建经验回放缓冲区
     buffer = experienceReplayBuffer(memory_size=args.buffer, burn_in=args.burnin)
@@ -85,7 +91,8 @@ if __name__ == "__main__":
     )
     
     # 保存模型和训练数据
-    torch.save(agent.network, nn_name)
-    agent._save_training_data(nn_name)
-    print(f"\nModel saved as: {nn_name}")
-    print(f"Training data saved as: {nn_name}_rewards.npy, {nn_name}_iterations.npy, etc.")
+    torch.save(agent.network, str(save_path))
+    agent._save_training_data(str(save_path))
+    print(f"\nModel saved to: {save_dir}")
+    print(f"  - Model: {save_path}")
+    print(f"  - Training data: {save_path}_rewards.npy, {save_path}_iterations.npy, etc.")

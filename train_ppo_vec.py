@@ -1,6 +1,7 @@
 import gymnasium as gym
 import numpy as np
 import os
+from pathlib import Path
 from agents.actor_critic_agent_v3 import PPOAgent, Trainer
 from pvz import config
 import matplotlib.pyplot as plt
@@ -41,13 +42,16 @@ def make_env():
     env = gym.make('gym_pvz:pvz-env-v2')
     return env
 
-def train_vec(num_envs=32, n_iter=1000, n_steps=1024, checkpoint_interval=50):
+def train_vec(num_envs=32, n_iter=1000, n_steps=1024, checkpoint_interval=50, model_name="ppo_vec_agent"):
     print(f"Training with {num_envs} environments...")
     # Create vector env
     envs = gym.vector.AsyncVectorEnv([make_env for _ in range(num_envs)])
     
-    # Create checkpoints directory if it doesn't exist
-    os.makedirs("checkpoints", exist_ok=True)
+    # Create save directory
+    save_dir = Path("agents/agent_zoo") / model_name
+    save_dir.mkdir(parents=True, exist_ok=True)
+    checkpoints_dir = save_dir / "checkpoints"
+    checkpoints_dir.mkdir(exist_ok=True)
     
     # Get dimensions
     dummy_env = Trainer(render=False)
@@ -106,8 +110,8 @@ def train_vec(num_envs=32, n_iter=1000, n_steps=1024, checkpoint_interval=50):
         print(f"Iteration {iteration}, Loss: {loss:.4f}, Entropy: {entropy:.4f}, Avg Score (last 100): {avg_score:.2f}")
         
         if (iteration + 1) % checkpoint_interval == 0:
-            checkpoint_path = os.path.join("checkpoints", f"ppo_vec_agent_iter_{iteration+1}.pth")
-            agent.save(checkpoint_path)
+            checkpoint_path = checkpoints_dir / f"checkpoint_iter_{iteration+1}.pth"
+            agent.save(str(checkpoint_path))
             print(f"Saved checkpoint to {checkpoint_path}")
         
     plt.figure(figsize=(15, 5))
@@ -124,10 +128,17 @@ def train_vec(num_envs=32, n_iter=1000, n_steps=1024, checkpoint_interval=50):
     plt.subplot(1, 3, 3)
     plt.plot(entropy_history)
     plt.title("Entropy")
-    plt.savefig("training_vec_plot.png")
+    plot_path = save_dir / "training_plot.png"
+    plt.savefig(str(plot_path))
     plt.close()
     
-    agent.save("ppo_vec_agent_model_2.pth")
+    # Save final model
+    final_model_path = save_dir / f"{model_name}.pth"
+    agent.save(str(final_model_path))
+    print(f"\nTraining complete!")
+    print(f"Models saved to: {save_dir}")
+    print(f"  - Final model: {final_model_path}")
+    print(f"  - Training plot: {plot_path}")
 
     envs.close()
 

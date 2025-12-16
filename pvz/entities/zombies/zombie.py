@@ -2,12 +2,19 @@ from ..entity import Entity
 
 from ... import config
 
+# 导入击杀奖励配置
+try:
+    from ... import reward_config
+    _ZOMBIE_KILL_REWARD = reward_config.ZOMBIE_KILL_REWARD
+except (ImportError, AttributeError):
+    _ZOMBIE_KILL_REWARD = 120  # 默认值
+
 class Zombie(Entity):
 
     MAX_HP = 190  # 190 normally
     WALKING_SPEED = 5 # Speed per square
     ATTACK_SPEED = 100 # Damage per second
-    SCORE = 120
+    SCORE = _ZOMBIE_KILL_REWARD  # 击杀奖励（从 reward_config 导入）
 
     def __init__(self, lane, pos=config.LANE_LENGTH - 1): # Zombie starts at the very right
         """

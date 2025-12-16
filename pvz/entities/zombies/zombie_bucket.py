@@ -1,12 +1,17 @@
 from ... import config
 from .zombie import Zombie
 
-
+# 导入击杀奖励配置
+try:
+    from ... import reward_config
+    _BUCKET_KILL_REWARD = reward_config.ZOMBIE_BUCKET_KILL_REWARD
+except (ImportError, AttributeError):
+    _BUCKET_KILL_REWARD = 120  # 默认值
 
 class Zombie_bucket(Zombie):
 
     MAX_HP = 1100
-    SCORE = 120 # It will add 30 for the normal zombie kill
+    SCORE = _BUCKET_KILL_REWARD  # 击杀铁桶僵尸奖励
 
     def step(self, scene):
         if scene.grid.is_empty(self.lane, self.pos):

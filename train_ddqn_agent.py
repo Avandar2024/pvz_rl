@@ -2,6 +2,7 @@
 from agents import experienceReplayBuffer, DDQNAgent, QNetwork
 import torch
 import argparse
+from pathlib import Path
 
 
 if __name__ == "__main__":
@@ -11,15 +12,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     n_iter = args.episodes
-    # 更精细的策略奖励，需要更多训练轮数（建议100k+）
-    # v2环境训练轮数建议取100k
-    env = gym.make('gym_pvz:pvz-env-v2')
+    env = gym.make('gym_pvz:pvz-env-v3')
     
     # 支持命令行指定名称，避免input()在某些终端下阻塞
     if args.name:
         nn_name = args.name
     else:
         nn_name = input("Save name: ")
+    
+    # 创建保存目录
+    save_dir = Path("agents/agent_zoo") / nn_name
+    save_dir.mkdir(parents=True, exist_ok=True)
+    save_path = save_dir / nn_name
     buffer = experienceReplayBuffer(memory_size=100000, burn_in=10000)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device} (torch={torch.__version__}, cuda_available={torch.cuda.is_available()})")
@@ -34,12 +38,12 @@ if __name__ == "__main__":
     agent.train(max_episodes=n_iter, evaluate_frequency=5000, evaluate_n_iter=1000)
     
     # 保存最终模型
-    torch.save(agent.network, nn_name)
-    agent._save_training_data(nn_name)
+    torch.save(agent.network, str(save_path))
+    agent._save_training_data(str(save_path))
     
     # 保存训练过程中表现最好的模型
-    agent.save_best_model(nn_name)
+    agent.save_best_model(str(save_path))
     
-    print(f"\n Models saved:")
-    print(f"  - Final model: {nn_name}")
-    print(f"  - Best model:  {nn_name}_best")
+    print(f"\n Models saved to: {save_dir}")
+    print(f"  - Final model: {save_path}")
+    print(f"  - Best model:  {save_path}_best")
