@@ -147,7 +147,7 @@ if __name__ == "__main__":
 
     if agent_type == "DDQN":
         env = PlayerQ(render=False)
-        load_path = "agents/agent_zoo/test_dddqn"
+        load_path = "dddqn2_best"
         # 自动选择设备：有GPU用GPU，没有用CPU
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         # Allowlist QNetwork for safe unpickling and load the full object.
