@@ -128,8 +128,13 @@ class DDQNAgent:
         # self.threshold = Threshold(seq_length = 100000, start_epsilon=1.0,
         #                   end_epsilon=0.2,interpolation='sinusoidal',
         #                   periods=np.floor(n_iter/100))
-        self.threshold = Threshold(seq_length = n_iter, start_epsilon=1.0, interpolation="exponential",
-                           end_epsilon=0.05)
+        # 激进的epsilon衰减：在前30%训练中快速降到0.05
+        self.threshold = Threshold(
+            seq_length=int(n_iter * 0.3),  # 在前30%的训练中完成衰减
+            start_epsilon=1.0, 
+            end_epsilon=0.05,
+            interpolation="exponential"
+        )
         self.epsilon = 0
         self.batch_size = batch_size
         self.window = 100
@@ -206,7 +211,8 @@ class DDQNAgent:
             self.rewards = 0
             done = False
             while not done:
-                self.epsilon = self.threshold.epsilon(ep)
+                epsilon_index = min(ep, self.threshold.seq_length - 1)
+                self.epsilon = self.threshold.epsilon(epsilon_index)
                 done = self.take_step(mode='train')
                 # Update network
                 if self.step_count % network_update_frequency == 0:
@@ -235,7 +241,7 @@ class DDQNAgent:
                     current_epsilon = self.threshold.epsilon(current_ep_idx)
                     
                     # 使用固定宽度格式，避免\r覆盖不完全
-                    status = f"Ep {ep:6d} | Reward {mean_rewards:7.2f} | Iter {mean_iteration:6.1f} | ε {current_epsilon:.3f}"
+                    status = f"Ep {ep:6d} | Mean Reward {mean_rewards:7.2f} | Mean Iter {mean_iteration:6.1f} | ε {current_epsilon:.3f}"
                     print(f"\r{status:80s}", end="")
 
                     if ep >= max_episodes:
@@ -258,8 +264,8 @@ class DDQNAgent:
                         # 打印评估结果（包含胜率）
                         print(f"\n{'='*60}")
                         print(f" Evaluation @ Episode {ep+1}")
-                        print(f" Score: {avg_score:.2f} | Avg Frames: {avg_iter:.1f}")
-                        print(f" Win: {win_rate:.1f}% ({wins}/{evaluate_n_iter}) | Loss: {loss_rate:.1f}% ({losses}/{evaluate_n_iter}) | Timeout: {timeout_rate:.1f}% ({timeouts}/{evaluate_n_iter})")
+                        print(f" Avg Score: {avg_score:.2f} | Avg Frames: {avg_iter:.1f}")
+                        print(f" Win: {win_rate:.1f}% ({wins}/{evaluate_n_iter}) | Loss: {loss_rate:.1f}% ({losses}/{evaluate_n_iter}) | Timeout: {timeout_rate:.1f}% ({timeouts}/{evaluate_n_iter})\n")
                         
                         # 保存最佳模型：如果当前评估分数超过历史最佳，保存模型参数
                         if avg_score > self.best_eval_score:
@@ -270,7 +276,8 @@ class DDQNAgent:
                             self.best_losses = losses
                             self.best_timeouts = timeouts
                             self.best_total_games = evaluate_n_iter
-                            print(f" NEW BEST MODEL! Score: {avg_score:.2f} @ ep {ep + 1}")
+                            print(f" NEW BEST MODEL! @ ep {ep + 1}")
+                            print(f" Best Score: {avg_score:.2f}")
                             print(f" Win: {win_rate:.1f}% ({wins}/{evaluate_n_iter}) | Loss: {loss_rate:.1f}% ({losses}/{evaluate_n_iter}) | Timeout: {timeout_rate:.1f}% ({timeouts}/{evaluate_n_iter})")
                         else:
                             print(f" Best: {self.best_eval_score:.2f} @ ep {self.best_episode}")

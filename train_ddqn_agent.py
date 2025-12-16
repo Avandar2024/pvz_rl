@@ -13,7 +13,7 @@ if __name__ == "__main__":
     n_iter = args.episodes
     # 更精细的策略奖励，需要更多训练轮数（建议100k+）
     # v2环境训练轮数建议取100k
-    env = gym.make('gym_pvz:pvz-env-v3')
+    env = gym.make('gym_pvz:pvz-env-v2')
     
     # 支持命令行指定名称，避免input()在某些终端下阻塞
     if args.name:
