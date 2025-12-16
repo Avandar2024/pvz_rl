@@ -107,6 +107,9 @@ class DuelingQNetwork(nn.Module):
             filter(lambda p: p.requires_grad, self.parameters()),
             lr=self.learning_rate
         )
+        
+        # Ensure model is on the correct device
+        self.to(self.device)
 
     def forward(self, state_t):
         """前向传播，返回Q值"""
@@ -140,7 +143,7 @@ class DuelingQNetwork(nn.Module):
         if type(state) is tuple:
             # 批量处理
             state = np.array([np.ravel(s) for s in state])
-            state_t = torch.FloatTensor(state).to(device=self.device)
+            state_t = torch.tensor(state, dtype=torch.float32, device=self.device)
             zombie_grid = state_t[:, self._grid_size:(2 * self._grid_size)].reshape(-1, config.LANE_LENGTH)
             plant_grid = state_t[:, :self._grid_size]
             
@@ -155,7 +158,7 @@ class DuelingQNetwork(nn.Module):
             state_t = torch.cat([plant_grid, zombie_grid, state_t[:, 2 * self._grid_size:]], axis=1)
         else:
             # 单个状态
-            state_t = torch.FloatTensor(state).to(device=self.device)
+            state_t = torch.tensor(state, dtype=torch.float32, device=self.device)
             zombie_grid = state_t[self._grid_size:(2 * self._grid_size)].reshape(-1, config.LANE_LENGTH)
             plant_grid = state_t[:self._grid_size]
             
@@ -170,6 +173,7 @@ class DuelingQNetwork(nn.Module):
             state_t = torch.cat([plant_grid, zombie_grid, state_t[2 * self._grid_size:]])
         
         return self.forward(state_t)
+
 
 
 class ZombieNet(nn.Module):
@@ -211,6 +215,15 @@ class D3QNAgent:
         self.reward_threshold = 30000
         self.initialize()
         self.player = PlayerQ(env=env, render=False)
+        
+        # 最佳模型追踪
+        self.best_eval_score = float('-inf')
+        self.best_model_state = None
+        self.best_episode = 0
+        self.best_wins = 0
+        self.best_losses = 0
+        self.best_timeouts = 0
+        self.best_total_games = 0
 
     def take_step(self, mode='train'):
         """执行一步动作"""
@@ -292,8 +305,13 @@ class D3QNAgent:
                     mean_iteration = np.mean(self.training_iterations[-self.window:])
                     self.mean_training_iterations.append(mean_iteration)
                     
-                    print("\rEpisode {:d} Mean Rewards {:.2f}\t\t Mean Iterations {:.2f}\t\t".format(
-                        ep, mean_rewards, mean_iteration), end="")
+                    # 获取当前 epsilon
+                    current_ep_idx = min(ep, self.threshold.seq_length - 1)
+                    current_epsilon = self.threshold.epsilon(current_ep_idx)
+                    
+                    # 使用固定宽度格式，避免\r覆盖不完全
+                    status = f"Ep {ep:6d} | Mean Reward {mean_rewards:7.2f} | Mean Iter {mean_iteration:6.1f} | ε {current_epsilon:.3f}"
+                    print(f"\r{status:80s}", end="")
 
                     if ep >= max_episodes:
                         training = False
@@ -308,9 +326,29 @@ class D3QNAgent:
                     # 定期评估
                     if (ep % evaluate_frequency) == evaluate_frequency - 1:
                         from .evaluate_agent import evaluate as _evaluate
-                        avg_score, avg_iter = _evaluate(self.player, self.network, n_iter=evaluate_n_iter, verbose=False)
+                        avg_score, avg_iter, win_rate, loss_rate, timeout_rate, wins, losses, timeouts = _evaluate(
+                            self.player, self.network, n_iter=evaluate_n_iter, verbose=False)
                         self.real_iterations.append(avg_iter)
                         self.real_rewards.append(avg_score)
+                        self.eval_stats.append((wins, losses, timeouts, evaluate_n_iter))  # 保存胜率统计
+                        
+                        # 打印评估结果（包含胜率）
+                        print(f"\n{'='*60}")
+                        print(f" Evaluation @ Episode {ep+1}")
+                        print(f" Avg Score: {avg_score:.2f} | Avg Frames: {avg_iter:.1f}")
+                        print(f" Win: {win_rate:.1f}% ({wins}/{evaluate_n_iter}) | Loss: {loss_rate:.1f}% ({losses}/{evaluate_n_iter}) | Timeout: {timeout_rate:.1f}% ({timeouts}/{evaluate_n_iter})")
+                        
+                        # 保存最佳模型
+                        if avg_score > self.best_eval_score:
+                            self.best_eval_score = avg_score
+                            self.best_model_state = deepcopy(self.network.state_dict())
+                            self.best_episode = ep + 1
+                            self.best_wins = wins
+                            self.best_losses = losses
+                            self.best_timeouts = timeouts
+                            self.best_total_games = evaluate_n_iter
+                            print(f" ★ NEW BEST MODEL! Score: {avg_score:.2f}")
+                        print(f"{'='*60}\n")
                         
                         if self.network.device == 'cuda':
                             torch.cuda.empty_cache()
@@ -403,7 +441,18 @@ class D3QNAgent:
         np.save(nn_name + "_iterations", self.training_iterations)
         np.save(nn_name + "_real_rewards", self.real_rewards)
         np.save(nn_name + "_real_iterations", self.real_iterations)
+        np.save(nn_name + "_eval_stats", self.eval_stats)  # 保存评估胜率统计
         torch.save(self.training_loss, nn_name + "_loss")
+        
+        # 保存最佳模型
+        if self.best_model_state is not None:
+            best_model_path = nn_name + "_best"
+            # 创建一个新的网络实例并加载最佳权重
+            self.network.load_state_dict(self.best_model_state)
+            torch.save(self.network, best_model_path)
+            print(f"\n★ Best model saved: {best_model_path}")
+            print(f"  From episode {self.best_episode}, Score: {self.best_eval_score:.2f}")
+            print(f"  Win: {self.best_wins}/{self.best_total_games}, Loss: {self.best_losses}/{self.best_total_games}")
 
     def initialize(self):
         """初始化训练状态"""
@@ -412,6 +461,7 @@ class D3QNAgent:
         self.training_iterations = []
         self.real_rewards = []
         self.real_iterations = []
+        self.eval_stats = []  # 保存评估时的胜率统计 [(wins, losses, timeouts, total), ...]
         self.update_loss = []
         self.mean_training_rewards = []
         self.mean_training_iterations = []

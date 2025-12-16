@@ -11,7 +11,7 @@ from pvz import config
 
 class PVZ():
     def __init__(self, render=True, max_frames=1000):
-        self.env = gym.make('gym_pvz:pvz-env-v3')
+        self.env = gym.make('gym_pvz:pvz-env-v2')
         self.max_frames = max_frames
         self.render = render
 
@@ -147,7 +147,7 @@ if __name__ == "__main__":
 
     if agent_type == "DDQN":
         env = PlayerQ(render=False)
-        load_path = "agents/agent_zoo/dfq5_epsexp"
+        load_path = "agents/agent_zoo/test_dddqn"
         # 自动选择设备：有GPU用GPU，没有用CPU
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         # Allowlist QNetwork for safe unpickling and load the full object.
