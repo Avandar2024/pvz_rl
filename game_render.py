@@ -148,16 +148,20 @@ if __name__ == "__main__":
     if agent_type == "DDQN":
         env = PlayerQ(render=False)
         load_path = "agents/agent_zoo/dfq5_epsexp"
+        # 自动选择设备：有GPU用GPU，没有用CPU
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         # Allowlist QNetwork for safe unpickling and load the full object.
         if hasattr(torch.serialization, "safe_globals"):
             from torch.serialization import safe_globals as _safe_globals
 
             with _safe_globals([QNetwork]):
-                agent = torch.load(load_path, weights_only=False, map_location="cpu")
+                agent = torch.load(load_path, weights_only=False, map_location=device)
         else:
             # add_safe_globals exists in some versions
             torch.serialization.add_safe_globals([QNetwork])
-            agent = torch.load(load_path, weights_only=False, map_location="cpu")
+            agent = torch.load(load_path, weights_only=False, map_location=device)
+        # 确保模型的device属性与实际设备一致
+        agent.device = device
 
     if agent_type == "AC":
         env = Trainer(render=False, max_frames=500 * config.FPS)
