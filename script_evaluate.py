@@ -52,6 +52,12 @@ if __name__ == "__main__":
         env = PlayerV2(render=True, max_frames=500 * config.FPS)
         agent = KeyboardAgent()
 
-    avg_score, avg_iter = evaluate(env, agent)
-    print("\nMean score {}".format(avg_score))
-    print("Mean iterations {}".format(avg_iter))
+    avg_score, avg_iter, win_rate, loss_rate, timeout_rate, wins, losses, timeouts = evaluate(env, agent)
+    total_games = wins + losses + timeouts
+    print("\n" + "="*50)
+    print(f"Mean score: {avg_score:.2f}")
+    print(f"Mean iterations: {avg_iter:.1f}")
+    print(f"Win: {win_rate:.1f}% ({wins}/{total_games})")
+    print(f"Loss: {loss_rate:.1f}% ({losses}/{total_games})")
+    print(f"Timeout: {timeout_rate:.1f}% ({timeouts}/{total_games})")
+    print("="*50)

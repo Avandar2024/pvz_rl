@@ -19,6 +19,11 @@ def evaluate(env, agent, n_iter=1000, verbose = True):
     iter_hist = []
     n_iter = n_iter
     actions = []
+    
+    # 胜率统计
+    wins = 0
+    losses = 0
+    timeouts = 0
 
     # 解包所有wrapper
     def _get_base_env(e):
@@ -43,6 +48,15 @@ def evaluate(env, agent, n_iter=1000, verbose = True):
 
         sum_score += summary['score']
         sum_iter += min(inner_env._scene._chrono, config.MAX_FRAMES)
+        
+        # 统计胜负
+        scene = inner_env._scene
+        if scene.is_victory():
+            wins += 1
+        elif scene.is_defeat():
+            losses += 1
+        else:
+            timeouts += 1
 
         # if env.env._scene._chrono >= 1000:
         #    render_info = env.env._scene._render_info
@@ -69,4 +83,8 @@ def evaluate(env, agent, n_iter=1000, verbose = True):
         plt.title("Plant usage density over {} plays".format(n_iter))
         plt.show()
 
-    return sum_score/n_iter, sum_iter/n_iter
+    win_rate = wins / n_iter * 100
+    loss_rate = losses / n_iter * 100
+    timeout_rate = timeouts / n_iter * 100
+    
+    return sum_score/n_iter, sum_iter/n_iter, win_rate, loss_rate, timeout_rate, wins, losses, timeouts

@@ -67,6 +67,12 @@ class Scene:
             self.projectiles.append(Mower(lane))
         else:
             self.lives -= 1
+            # 生命损失的即时惩罚
+            try:
+                from . import reward_config
+                self.score += reward_config.LIFE_LOSS_PENALTY
+            except (ImportError, AttributeError):
+                pass  # 如果没有配置文件，则不添加惩罚
 
     def _remove_dead_objects(self):
         alive_plants = []
@@ -128,8 +134,14 @@ class Scene:
         return False
 
     def is_victory(self):
-        """胜利条件：停止刷怪且场上没有僵尸。"""
-        return self._spawning_finished and len(self.zombies) == 0
+        """胜利条件：僵尸生成完毕且场上没有僵尸。"""
+        # 优先使用spawner的is_finished()方法（如果存在）
+        spawner_finished = getattr(self._zombie_spawner, 'is_finished', lambda: self._spawning_finished)()
+        return spawner_finished and len(self.zombies) == 0
+
+    def is_timeout(self):
+        """超时条件：达到最大帧数但游戏未结束。"""
+        return self._chrono >= config.MAX_FRAMES
 
     def is_defeat(self):
         """失败条件：生命值耗尽。"""

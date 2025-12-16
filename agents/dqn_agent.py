@@ -250,9 +250,11 @@ class DQNAgent:
                             ep))
                         break
                     if (ep%evaluate_frequency) == evaluate_frequency - 1:
-                        avg_score, avg_iter = evaluate(self.player, self.network, n_iter = evaluate_n_iter, verbose=False)
+                        avg_score, avg_iter, win_rate, loss_rate, timeout_rate, wins, losses, timeouts = evaluate(
+                            self.player, self.network, n_iter = evaluate_n_iter, verbose=False)
                         self.real_iterations.append(avg_iter)
                         self.real_rewards.append(avg_score)
+                        print(f"\nEval @ ep {ep+1}: Score={avg_score:.2f}, Win={win_rate:.1f}% ({wins}/{evaluate_n_iter}), Loss={loss_rate:.1f}% ({losses}/{evaluate_n_iter})")
 
 
 

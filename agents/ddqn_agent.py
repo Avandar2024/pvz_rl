@@ -128,10 +128,8 @@ class DDQNAgent:
         # self.threshold = Threshold(seq_length = 100000, start_epsilon=1.0,
         #                   end_epsilon=0.2,interpolation='sinusoidal',
         #                   periods=np.floor(n_iter/100))
-        # 减慢epsilon衰减，给模型更多探索时间
-        # end_epsilon提高到0.1，保持一定随机探索
         self.threshold = Threshold(seq_length = n_iter, start_epsilon=1.0, interpolation="exponential",
-                           end_epsilon=0.1)
+                           end_epsilon=0.05)
         self.epsilon = 0
         self.batch_size = batch_size
         self.window = 100
@@ -231,8 +229,14 @@ class DDQNAgent:
                     mean_iteration = np.mean(
                         self.training_iterations[-self.window:])
                     self.mean_training_iterations.append(mean_iteration)
-                    print("\rEpisode {:d} Mean Rewards {:.2f}\t\t Mean Iterations {:.2f}\t\t".format(
-                        ep, mean_rewards,mean_iteration), end="")
+                    
+                    # 获取当前 epsilon
+                    current_ep_idx = min(ep, self.threshold.seq_length - 1)
+                    current_epsilon = self.threshold.epsilon(current_ep_idx)
+                    
+                    # 使用固定宽度格式，避免\r覆盖不完全
+                    status = f"Ep {ep:6d} | Reward {mean_rewards:7.2f} | Iter {mean_iteration:6.1f} | ε {current_epsilon:.3f}"
+                    print(f"\r{status:80s}", end="")
 
                     if ep >= max_episodes:
                         training = False
@@ -246,9 +250,33 @@ class DDQNAgent:
                     if (ep % evaluate_frequency) == evaluate_frequency - 1:
                         # 延迟导入以避免循环引用（evaluate 在 agents 包里，与 ddqn_agent 互相导入会触发循环）
                         from .evaluate_agent import evaluate as _evaluate
-                        avg_score, avg_iter = _evaluate(self.player, self.network, n_iter=evaluate_n_iter, verbose=False)
+                        avg_score, avg_iter, win_rate, loss_rate, timeout_rate, wins, losses, timeouts = _evaluate(
+                            self.player, self.network, n_iter=evaluate_n_iter, verbose=False)
                         self.real_iterations.append(avg_iter)
                         self.real_rewards.append(avg_score)
+                        
+                        # 打印评估结果（包含胜率）
+                        print(f"\n{'='*60}")
+                        print(f" Evaluation @ Episode {ep+1}")
+                        print(f" Score: {avg_score:.2f} | Avg Frames: {avg_iter:.1f}")
+                        print(f" Win: {win_rate:.1f}% ({wins}/{evaluate_n_iter}) | Loss: {loss_rate:.1f}% ({losses}/{evaluate_n_iter}) | Timeout: {timeout_rate:.1f}% ({timeouts}/{evaluate_n_iter})")
+                        
+                        # 保存最佳模型：如果当前评估分数超过历史最佳，保存模型参数
+                        if avg_score > self.best_eval_score:
+                            self.best_eval_score = avg_score
+                            self.best_model_state = deepcopy(self.network.state_dict())
+                            self.best_episode = ep + 1
+                            self.best_wins = wins
+                            self.best_losses = losses
+                            self.best_timeouts = timeouts
+                            self.best_total_games = evaluate_n_iter
+                            print(f" NEW BEST MODEL! Score: {avg_score:.2f} @ ep {ep + 1}")
+                            print(f" Win: {win_rate:.1f}% ({wins}/{evaluate_n_iter}) | Loss: {loss_rate:.1f}% ({losses}/{evaluate_n_iter}) | Timeout: {timeout_rate:.1f}% ({timeouts}/{evaluate_n_iter})")
+                        else:
+                            print(f" Best: {self.best_eval_score:.2f} @ ep {self.best_episode}")
+                            print(f" Win: {self.best_wins}/{self.best_total_games} | Loss: {self.best_losses}/{self.best_total_games} | Timeout: {self.best_timeouts}/{self.best_total_games}")
+                        print(f"{'='*60}")
+                        
                         # 定期清理CUDA缓存
                         if self.network.device == 'cuda':
                             torch.cuda.empty_cache()
@@ -327,6 +355,25 @@ class DDQNAgent:
         np.save(nn_name+"_real_rewards", self.real_rewards)
         np.save(nn_name+"_real_iterations", self.real_iterations)
         torch.save(self.training_loss, nn_name+"_loss")
+    
+    def get_best_model(self):
+        """返回训练过程中表现最好的模型参数"""
+        if self.best_model_state is not None:
+            # 创建一个新的网络副本并加载最佳参数
+            best_network = deepcopy(self.network)
+            best_network.load_state_dict(self.best_model_state)
+            return best_network, self.best_eval_score, self.best_episode
+        return None, None, None
+    
+    def save_best_model(self, nn_name):
+        """保存最佳模型"""
+        if self.best_model_state is not None:
+            best_network = deepcopy(self.network)
+            best_network.load_state_dict(self.best_model_state)
+            torch.save(best_network, nn_name + "_best")
+            print(f"Best model saved: {nn_name}_best (Score: {self.best_eval_score:.2f}, Episode: {self.best_episode})")
+        else:
+            print("No best model recorded yet")
 
     def initialize(self):
         self.training_rewards = []
@@ -340,6 +387,14 @@ class DDQNAgent:
         self.sync_eps = []
         self.rewards = 0
         self.step_count = 0
+        # 保存最佳模型相关
+        self.best_eval_score = float('-inf')  # 最佳评估分数
+        self.best_model_state = None  # 最佳模型参数
+        self.best_episode = 0  # 最佳模型对应的episode
+        self.best_wins = 0  # 最佳模型的胜局数
+        self.best_losses = 0  # 最佳模型的败局数
+        self.best_timeouts = 0  # 最佳模型的超时局数
+        self.best_total_games = 0  # 最佳模型的总局数
         obs_raw, _info = self.env.reset()
         self.s_0 = self._transform_observation(obs_raw)
 

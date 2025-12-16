@@ -32,5 +32,14 @@ if __name__ == "__main__":
     #                                       lr=net.learning_rate)
     agent = DDQNAgent(env, net, buffer, n_iter=n_iter, batch_size=64)
     agent.train(max_episodes=n_iter, evaluate_frequency=5000, evaluate_n_iter=1000)
+    
+    # 保存最终模型
     torch.save(agent.network, nn_name)
     agent._save_training_data(nn_name)
+    
+    # 保存训练过程中表现最好的模型
+    agent.save_best_model(nn_name)
+    
+    print(f"\n Models saved:")
+    print(f"  - Final model: {nn_name}")
+    print(f"  - Best model:  {nn_name}_best")

@@ -1,6 +1,7 @@
 import gymnasium as gym
 from gymnasium.spaces import MultiDiscrete, Discrete
 from pvz import Scene, WaveZombieSpawner, Move, config, Sunflower, Peashooter, Wallnut, Potatomine
+from pvz import reward_config as rcfg
 import numpy as np
 
 MAX_ZOMBIE_HP = 10000
@@ -36,21 +37,49 @@ class PVZEnv_V2(gym.Env):
         """
         New Gymnasium step API:
         return obs, reward, terminated, truncated, info
+        
+        结束条件:
+        - terminated=True: 胜利(消灭所有僵尸) 或 失败(僵尸进屋)
+        - truncated=True: 超时(达到MAX_FRAMES)
+        密集奖励（即时反馈，引导具体行为）:
+          - 击杀僵尸: +120/只 - 立即奖励好行为
+          - 生命损失: -50/次 - 僵尸进屋时立即惩罚
+        
+        稀疏奖励（终局反馈，强调最终目标）:
+          - 胜利: +500 - 强化"赢"是最好的结果
+          - 失败: -200 - 强化"输"是最坏的结果  
+          - 超时: -100 - 防止无限拖延
         """
         # Apply action
         self._take_action(action)
         self._scene.step()  # Minimum one step
         reward = self._scene.score
-        # Continue stepping until another move is available
-        terminated = self._scene.is_defeat() or self._scene.is_victory()
-        truncated = False  # 胜利/失败由 is_victory/is_defeat 判定
-        while (not self._scene.move_available()) and (not terminated):
+        
+        # 检查结束条件
+        is_victory = self._scene.is_victory()
+        is_defeat = self._scene.is_defeat()
+        terminated = is_defeat or is_victory
+        truncated = self._scene.is_timeout()
+        
+        # Continue stepping until another move is available (or game ends)
+        while (not self._scene.move_available()) and (not terminated) and (not truncated):
             self._scene.step()
             reward += self._scene.score
-            terminated = self._scene.is_defeat() or self._scene.is_victory()
+            is_victory = self._scene.is_victory()
+            is_defeat = self._scene.is_defeat()
+            terminated = is_defeat or is_victory
+            truncated = self._scene.is_timeout()
+        
+        # 终局稀疏奖励
+        if is_victory:
+            reward += rcfg.REWARD_WIN  # +500
+        elif is_defeat:
+            reward += rcfg.REWARD_LOSE  # -200
+        elif truncated:
+            reward += rcfg.REWARD_TIMEOUT  # -100
+            
         # Observation
         obs = self._get_obs()
-        # 终局：场上僵尸被清空（胜利）或基地被攻破（失败）
         # Save reward for rendering
         self._reward = reward
         return obs, reward, terminated, truncated, {}
