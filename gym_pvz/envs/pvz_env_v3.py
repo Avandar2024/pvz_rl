@@ -12,7 +12,7 @@ MAX_COOLDOWN = 20  # Potatomine/Wallnut
 # 所有可调参数集中在 pvz/config.py 中，便于统一管理
 
 
-class PVZEnv_V2(gym.Env):
+class PVZEnv_V3(gym.Env):
     metadata = {'render_modes': ['human']}
 
     def __init__(self):

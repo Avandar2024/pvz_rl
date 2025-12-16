@@ -21,7 +21,7 @@ MAX_ZOMBIE_HP = 10000
 MAX_SUN = 10000
 
 
-class PVZEnv_V3(gym.Env):
+class PVZEnv_V4(gym.Env):
     """策略性奖励塑形的 PvZ 环境"""
     metadata = {'render_modes': ['human']}
 
