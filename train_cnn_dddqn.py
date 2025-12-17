@@ -29,6 +29,10 @@ if __name__ == "__main__":
     parser.add_argument("--eval-freq", type=int, default=5000, help="评估频率(episodes)")
     parser.add_argument("--eval-iter", type=int, default=1000, help="每次评估的迭代次数")
     parser.add_argument("--lr", type=float, default=1e-4, help="学习率")
+    # 新增稳定性参数
+    parser.add_argument("--tau", type=float, default=0.005, help="软更新系数(越小越稳定)")
+    parser.add_argument("--grad-clip", type=float, default=10.0, help="梯度裁剪阈值")
+    parser.add_argument("--end-epsilon", type=float, default=0.13, help="最终探索率")
     args = parser.parse_args()
     
     n_iter = args.episodes
@@ -75,14 +79,21 @@ if __name__ == "__main__":
     print(f"  Total parameters: {total_params:,}")
     print(f"  Architecture: CNN Feature Extractor -> Value Stream + Advantage Stream")
     
-    # 创建Agent
+    # 创建Agent（改进版：添加稳定性参数）
     agent = CNN_D3QNAgent(
         env=env,
         network=network,
         buffer=buffer,
         n_iter=n_iter,
-        batch_size=args.batch
+        batch_size=args.batch,
+        tau=args.tau,
+        grad_clip=args.grad_clip,
+        end_epsilon=args.end_epsilon
     )
+    
+    print(f"  Soft update tau: {args.tau}")
+    print(f"  Gradient clipping: {args.grad_clip}")
+    print(f"  End epsilon: {args.end_epsilon}")
     
     # 开始训练（与原版train调用方式一致）
     print(f"\nStarting training for {n_iter} episodes...")

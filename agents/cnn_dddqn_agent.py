@@ -127,19 +127,25 @@ class CNN_D3QNAgent:
     训练逻辑、输出格式与原版dddqn_agent.py完全一致，只是网络换成CNN版本。
     """
 
-    def __init__(self, env, network, buffer, n_iter=100000, batch_size=32):
+    def __init__(self, env, network, buffer, n_iter=100000, batch_size=32,
+                 tau=0.005, grad_clip=10.0, end_epsilon=0.15):
         self._grid_size = config.N_LANES * config.LANE_LENGTH
         self.env = env
         self.network = network
         self.target_network = deepcopy(network)
         self.buffer = buffer
         
-        # Epsilon衰减策略（与原版一致）
+        # 软更新参数
+        self.tau = tau  # 软更新系数，越小更新越慢越稳定
+        self.grad_clip = grad_clip  # 梯度裁剪阈值
+        
+        # Epsilon衰减策略（改进版：更慢衰减，更高最终epsilon保持探索）
+        # 使用80%的训练时间来衰减，保留更多探索
         self.threshold = Threshold(
-            seq_length=n_iter, 
+            seq_length=int(n_iter * 0.8),  # 80%时间用于衰减
             start_epsilon=1.0, 
             interpolation="exponential",
-            end_epsilon=0.1
+            end_epsilon=end_epsilon  # 更高的最终epsilon，保持探索
         )
         self.epsilon = 0
         self.batch_size = batch_size
@@ -211,10 +217,10 @@ class CNN_D3QNAgent:
 
     def train(self, gamma=0.99, max_episodes=100000,
               network_update_frequency=32,
-              network_sync_frequency=2000,
+              network_sync_frequency=10000,  # 增加到10000，因为现在有软更新
               evaluate_frequency=5000,
               evaluate_n_iter=1000):
-        """训练循环（与原版格式完全一致）"""
+        """训练循环（改进版：软更新为主，周期性硬同步为辅）"""
         
         self.gamma = gamma
         
@@ -233,11 +239,11 @@ class CNN_D3QNAgent:
                 self.epsilon = self.threshold.epsilon(ep)
                 done = self.take_step(mode='train')
                 
-                # 更新网络
+                # 更新网络（内部包含软更新）
                 if self.step_count % network_update_frequency == 0:
                     self.update()
                 
-                # 同步目标网络
+                # 周期性硬同步（作为保险，防止目标网络漂移太远）
                 if self.step_count % network_sync_frequency == 0:
                     self.target_network.load_state_dict(self.network.state_dict())
                     self.sync_eps.append(ep)
@@ -303,7 +309,7 @@ class CNN_D3QNAgent:
                             torch.cuda.empty_cache()
 
     def calculate_loss(self, batch):
-        """计算Double DQN损失（与原版一致）"""
+        """计算Double DQN损失（改进版：使用Huber Loss + reward clipping）"""
         states, actions, rewards, dones, next_states = [i for i in batch]
         rewards_t = torch.FloatTensor(rewards).to(device=self.network.device).reshape(-1, 1)
         actions_t = torch.LongTensor(np.array(actions)).to(device=self.network.device).reshape(-1, 1)
@@ -325,16 +331,25 @@ class CNN_D3QNAgent:
         qvals_next[dones_t] = 0
         expected_qvals = self.gamma * qvals_next + rewards_t
         
-        loss = nn.MSELoss()(qvals, expected_qvals)
+        # 使用Huber Loss（Smooth L1 Loss），对异常值更鲁棒
+        loss = nn.SmoothL1Loss()(qvals, expected_qvals)
         return loss
 
     def update(self):
-        """执行一次网络更新（与原版一致）"""
+        """执行一次网络更新（改进版：梯度裁剪 + 软更新）"""
         self.network.optimizer.zero_grad()
         batch = self.buffer.sample_batch(batch_size=self.batch_size)
         loss = self.calculate_loss(batch)
         loss.backward()
+        
+        # 梯度裁剪：防止梯度爆炸，稳定训练
+        nn.utils.clip_grad_norm_(self.network.parameters(), self.grad_clip)
+        
         self.network.optimizer.step()
+        
+        # 软更新目标网络：θ_target = τ*θ_online + (1-τ)*θ_target
+        # 比硬更新更平滑，减少震荡
+        self._soft_update_target()
         
         if self.network.device == 'cuda':
             self.update_loss.append(loss.detach().cpu().numpy())
@@ -342,6 +357,14 @@ class CNN_D3QNAgent:
             self.update_loss.append(loss.detach().numpy())
         
         del batch, loss
+    
+    def _soft_update_target(self):
+        """软更新目标网络"""
+        for target_param, online_param in zip(self.target_network.parameters(), 
+                                               self.network.parameters()):
+            target_param.data.copy_(
+                self.tau * online_param.data + (1.0 - self.tau) * target_param.data
+            )
 
     def _transform_observation(self, observation):
         """转换观察值（与原版一致）"""
