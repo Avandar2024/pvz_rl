@@ -392,8 +392,6 @@ def evaluate_lane_peaceful(plants_in_lane: List) -> float:
             score += 10  # 向日葵在前两列
         if plant_type == 'peashooter' and 1 <= col <= 3:
             score += 6   # 豌豆在2-4列
-        if plant_type == 'wallnut' and col >= 4:
-            score += 6   # 坚果在后排
     
     return score
 
@@ -408,25 +406,24 @@ def evaluate_lane_with_zombies(plants_in_lane: List, zombies_in_lane: List) -> f
     
     if sim_result.zombies_defeated and sim_result.plants_eaten == 0:
         # 情况A: 僵尸被完全消灭，植物无损失 (最好)
-        score = 130.0
+        score = 140.0
         return min(score, 150.0)
     
     elif not sim_result.breakthrough:
         # 情况B: 僵尸会吃掉一些植物，但不会突破（模拟中消灭）
-        score = 120.0 - sim_result.plants_eaten * 15.0
-        return max(score, 40.0)
+        score = 130.0 - sim_result.plants_eaten * 10.0
+        return max(score, 70.0)
     
     else:
         # 情况C: 僵尸会突破防线 (最差)
         # 但拖延时间长、僵尸停留位置靠右会稍微好一点
         score = 0.0
         
-        # 时间加分: 每拖延10帧 +0.5分，最多+15分
-        time_bonus = min(sim_result.breakthrough_time / 20.0, 15.0)
+        # 时间加分: 每拖延10帧 +5分，最多+60分
+        time_bonus = min(sim_result.breakthrough_time / 2.0, 60.0)
         score += time_bonus
         
-        # 确保突破情况分数始终低于不突破
-        return min(score, 35.0)
+        return min(score, 60.0)
 
 
 def evaluate_lane(scene, lane: int) -> float:
@@ -442,10 +439,13 @@ def evaluate_lane(scene, lane: int) -> float:
     # 筛选该行的植物和僵尸
     plants_in_lane = [p for p in scene.plants if p.lane == lane and p.hp > 0]
     zombies_in_lane = [z for z in scene.zombies if z.lane == lane and z.hp > 0]
-    
     if not zombies_in_lane:
         # 无僵尸，评估植物布局
-        return evaluate_lane_peaceful(plants_in_lane)
+        return evaluate_economy(scene.sun) + evaluate_lane_peaceful(plants_in_lane)
     else:
         # 有僵尸，模拟战斗
-        return evaluate_lane_with_zombies(plants_in_lane, zombies_in_lane)
+        return evaluate_economy(scene.sun) + evaluate_lane_with_zombies(plants_in_lane, zombies_in_lane)
+
+
+def evaluate_economy(sun_amount: int) -> float:
+    return 0.1 * min(sun_amount, 250.0)

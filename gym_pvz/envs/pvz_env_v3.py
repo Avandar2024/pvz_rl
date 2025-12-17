@@ -21,7 +21,6 @@ from .position_evaluator import (
 # 种植位置奖励配置（直接从 reward_config 导入）
 PLACEMENT_REWARDS = rcfg.PLACEMENT_REWARDS
 PLACEMENT_DEFAULT = rcfg.PLACEMENT_DEFAULT
-SUN_WASTE_PENALTY = rcfg.SUN_WASTE_PENALTY
 FRONT_ROW_PENALTY = rcfg.FRONT_ROW_PENALTY
 
 
@@ -112,13 +111,6 @@ class PVZEnv_V3(gym.Env):
             
             # 计算位置奖励
             placement_reward = _get_placement_reward(plant_name, pos)
-            
-            # 检查该行是否有僵尸
-            has_zombie_in_lane = any(z.lane == lane and z.hp > 0 for z in self._scene.zombies)
-            
-            # 阳光浪费惩罚：非向日葵在没有僵尸的行种植
-            if plant_name != 'sunflower' and not has_zombie_in_lane:
-                placement_reward += SUN_WASTE_PENALTY
             
             # 第一排（pos=0）种植非向日葵的额外惩罚
             if pos == 0 and plant_name != 'sunflower':

@@ -16,7 +16,7 @@ def sum_onehot(grid):
 
 class QNetwork(nn.Module):
 
-    def __init__(self, env, epsilon=0.05, learning_rate=1e-3, device='cpu', use_zombienet=True, use_gridnet=True):
+    def __init__(self, env, epsilon=0.05, learning_rate=1e-4, device='cpu', use_zombienet=True, use_gridnet=True):
         super(QNetwork, self).__init__()
         self.device = device
 
@@ -46,10 +46,23 @@ class QNetwork(nn.Module):
             # self.gridnet = sum_onehot
 
         # Set up network
+
+        # two hidden layers
+        # self.network = nn.Sequential(
+        #     nn.Linear(self.n_inputs, 128, bias=True),
+        #     nn.LayerNorm(128),
+        #     nn.LeakyReLU(),
+        #     nn.Linear(128, 64, bias=True),
+        #     nn.LayerNorm(64),
+        #     nn.LeakyReLU(),
+        #     nn.Linear(64, self.n_outputs, bias=True))
+
+        # one hidden layer
         self.network = nn.Sequential(
-            nn.Linear(self.n_inputs, 50, bias=True),
+            nn.Linear(self.n_inputs, 64, bias=True),
+            nn.LayerNorm(64),
             nn.LeakyReLU(),
-            nn.Linear(50, self.n_outputs, bias=True))
+            nn.Linear(64, self.n_outputs, bias=True))
 
         # Set to GPU if cuda is specified
         if self.device == 'cuda':
@@ -128,9 +141,8 @@ class DDQNAgent:
         # self.threshold = Threshold(seq_length = 100000, start_epsilon=1.0,
         #                   end_epsilon=0.2,interpolation='sinusoidal',
         #                   periods=np.floor(n_iter/100))
-        # 激进的epsilon衰减：在前30%训练中快速降到0.05
         self.threshold = Threshold(
-            seq_length=int(n_iter * 0.3),  # 在前30%的训练中完成衰减
+            seq_length=int(n_iter * 0.8),
             start_epsilon=1.0, 
             end_epsilon=0.05,
             interpolation="exponential"
@@ -193,7 +205,7 @@ class DDQNAgent:
     # Implement DQN training algorithm
     def train(self, gamma=0.99, max_episodes=100000,
               network_update_frequency=32,
-              network_sync_frequency=2000,
+              network_sync_frequency=3000,
               evaluate_frequency=500,
               evaluate_n_iter=1000):
 
@@ -240,9 +252,11 @@ class DDQNAgent:
                     current_ep_idx = min(ep, self.threshold.seq_length - 1)
                     current_epsilon = self.threshold.epsilon(current_ep_idx)
                     
-                    # 使用固定宽度格式，避免\r覆盖不完全
-                    status = f"Ep {ep:6d} | Mean Reward {mean_rewards:7.2f} | Mean Iter {mean_iteration:6.1f} | ε {current_epsilon:.3f}"
-                    print(f"\r{status:80s}", end="")
+                    # 计算最近window个episode的平均loss
+                    mean_loss = np.mean(self.training_loss[-self.window:]) if len(self.training_loss) > 0 else 0.0
+                    
+                    status = f"Ep {ep:6d} | Mean Reward {mean_rewards:7.2f} | Mean Iter {mean_iteration:6.1f} | Mean Loss(Q) {mean_loss:.4f} | ε {current_epsilon:.3f}"
+                    print(f"\r{status:100s}", end="")
 
                     if ep >= max_episodes:
                         training = False
@@ -312,7 +326,9 @@ class DDQNAgent:
         #################################################################
         qvals_next[dones_t] = 0 # Zero-out terminal states
         expected_qvals = self.gamma * qvals_next + rewards_t
-        loss = nn.MSELoss()(qvals, expected_qvals)
+        # Huber Loss(SmoothL1)对大reward更鲁棒
+        loss = nn.SmoothL1Loss()(qvals, expected_qvals)
+        # loss = nn.MSELoss()(qvals, expected_qvals)
         return loss
 
     def update(self):
@@ -320,6 +336,8 @@ class DDQNAgent:
         batch = self.buffer.sample_batch(batch_size=self.batch_size)
         loss = self.calculate_loss(batch)
         loss.backward()
+        # Gradient clipping to prevent gradient explosion
+        # torch.nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=3.0)
         self.network.optimizer.step()
         if self.network.device == 'cuda':
             self.update_loss.append(loss.detach().cpu().numpy())

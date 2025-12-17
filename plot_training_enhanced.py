@@ -98,7 +98,7 @@ def plot_training_results(name):
     ax3.plot(x, loss_smooth, color='green', linewidth=2)
     ax3.set_xlabel('Episode')
     ax3.set_ylabel('Loss')
-    ax3.set_title('Training Loss (MSE)')
+    ax3.set_title('Training Loss')
     ax3.grid(True, alpha=0.3)
     
     # 4. 评估奖励趋势（带最佳标记）
