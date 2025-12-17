@@ -72,11 +72,11 @@ class PVZEnv_V2(gym.Env):
         
         # 终局稀疏奖励
         if is_victory:
-            reward += rcfg.REWARD_WIN  # +500
+            reward += +500 #rcfg.REWARD_WIN  # 
         elif is_defeat:
-            reward += rcfg.REWARD_LOSE  # -200
+            reward += -200 #rcfg.REWARD_LOSE  # -200
         elif truncated:
-            reward += rcfg.REWARD_TIMEOUT  # -100
+            reward += -100 #rcfg.REWARD_TIMEOUT  # -100
             
         # Observation
         obs = self._get_obs()

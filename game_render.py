@@ -148,13 +148,13 @@ if __name__ == "__main__":
 
     if agent_type == "DDQN":
         env = PlayerQ(render=False)
-        model_name = "dfq5_epsexp"
-        # 尝试从 agent_zoo 加载
-        model_path = Path("agents/agent_zoo") / model_name / model_name
-        if not model_path.exists():
-            # 备选: 直接使用旧路径
-            model_path = Path("agents/agent_zoo") / model_name
-        load_path = str(model_path)
+        # model_name = "cnn_dddqn_originv2_best"
+        # # 尝试从 agent_zoo 加载
+        # model_path = Path("agents/agent_zoo") / model_name / model_name
+        # if not model_path.exists():
+        #     # 备选: 直接使用旧路径
+        #     model_path = Path("agents/agent_zoo") / model_name
+        load_path = "agents/agent_zoo/cnn_dddqn_originv2/cnn_dddqn_originv2"
         
         # 自动选择设备：有GPU用GPU，没有用CPU
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
