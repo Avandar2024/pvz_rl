@@ -9,6 +9,7 @@ from .threshold import Threshold
 
 HP_NORM = 1
 SUN_NORM = 200
+LEARNING_RATE = 2e-4
 
 def sum_onehot(grid):
     return torch.cat([(grid == (i + 1)).sum(dim=-1, keepdim=True).float() for i in range(4)], dim=-1)
@@ -16,7 +17,7 @@ def sum_onehot(grid):
 
 class QNetwork(nn.Module):
 
-    def __init__(self, env, epsilon=0.05, learning_rate=1e-4, device='cpu', use_zombienet=True, use_gridnet=True):
+    def __init__(self, env, epsilon=0.05, learning_rate=LEARNING_RATE, device='cpu', use_zombienet=True, use_gridnet=True):
         super(QNetwork, self).__init__()
         self.device = device
 
@@ -47,19 +48,22 @@ class QNetwork(nn.Module):
 
         # Set up network
 
-        # two hidden layers
+        # one hidden layer
         # self.network = nn.Sequential(
-        #     nn.Linear(self.n_inputs, 128, bias=True),
-        #     nn.LayerNorm(128),
-        #     nn.LeakyReLU(),
-        #     nn.Linear(128, 64, bias=True),
+        #     nn.Linear(self.n_inputs, 64, bias=True),
         #     nn.LayerNorm(64),
         #     nn.LeakyReLU(),
         #     nn.Linear(64, self.n_outputs, bias=True))
 
-        # one hidden layer
+        # three hidden layers (256 -> 128 -> 64)
         self.network = nn.Sequential(
-            nn.Linear(self.n_inputs, 64, bias=True),
+            nn.Linear(self.n_inputs, 256, bias=True),
+            nn.LayerNorm(256),
+            nn.LeakyReLU(),
+            nn.Linear(256, 128, bias=True),
+            nn.LayerNorm(128),
+            nn.LeakyReLU(),
+            nn.Linear(128, 64, bias=True),
             nn.LayerNorm(64),
             nn.LeakyReLU(),
             nn.Linear(64, self.n_outputs, bias=True))
@@ -72,8 +76,7 @@ class QNetwork(nn.Module):
             if use_gridnet:
                 self.gridnet.cuda()
 
-        self.optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.parameters()),
-                                          lr=self.learning_rate)
+        self.optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.parameters()), lr=self.learning_rate)
 
     def decide_action(self, state, mask, epsilon):
         # mask = self.env.mask_available_actions()
@@ -129,13 +132,23 @@ class ZombieNet(nn.Module):
 
 class DDQNAgent:
 
-    def __init__(self, env, network, buffer, n_iter = 100000, batch_size=32):
+    def __init__(self, env, network, buffer, n_iter=100000, batch_size=32,
+                 heuristic_agent=None, heuristic_prob=0.0):
 
         self._grid_size = config.N_LANES * config.LANE_LENGTH
         self.env = env
         self.network = network
         self.target_network = deepcopy(network)
         self.buffer = buffer
+        
+        # 启发式智能体支持
+        self.heuristic_agent = heuristic_agent
+        self.heuristic_prob = heuristic_prob
+        self.use_heuristic_this_episode = False  # 当前episode是否使用启发式
+        self.heuristic_episodes = 0  # 使用启发式的episode数
+        self.random_episodes = 0     # 使用随机的episode数
+        self.s_0_raw = None  # 保存原始观测（未transform）
+        
         # self.pre_buffer = []
         # self.pre_buffer_rewards = []
         # self.threshold = Threshold(seq_length = 100000, start_epsilon=1.0,
@@ -168,10 +181,16 @@ class DDQNAgent:
         # mask = np.full(inner.mask_available_actions().size(), True)
         mask = np.array(inner.mask_available_actions())
         if mode == 'explore':
-            if np.random.random() < 0.5:
-                action = 0  # Do nothing
+            # 在explore模式下，使用启发式智能体或随机探索
+            if self.use_heuristic_this_episode and self.heuristic_agent is not None:
+                # 使用脚本智能体决策（需要原始观测）
+                action = self.heuristic_agent.decide_action(self.s_0_raw)
             else:
-                action = np.random.choice(np.arange(inner.action_space.n)[mask])
+                # 原始随机探索逻辑
+                if np.random.random() < 0.5:
+                    action = 0  # Do nothing
+                else:
+                    action = np.random.choice(np.arange(inner.action_space.n)[mask])
         else:
             action = self.network.decide_action(self.s_0, mask, epsilon=self.epsilon)
             self.step_count += 1
@@ -186,11 +205,23 @@ class DDQNAgent:
         # self.pre_buffer_rewards.append(r)
         self.buffer.append(self.s_0, action, r, done, s_1)
         self.s_0 = s_1.copy()
+        self.s_0_raw = obs_raw.copy()  # 保存原始观测
         if done:
             if mode != "explore":  # We document the end of the play
                 self.training_iterations.append(min(config.MAX_FRAMES, _inner_env(self.env)._scene._chrono))
             obs_raw, _info = self.env.reset()
             self.s_0 = self._transform_observation(obs_raw)
+            self.s_0_raw = obs_raw.copy()  # 保存原始观测
+            
+            # 在新一局开始时，决定是否使用启发式
+            if mode == 'explore' and self.heuristic_agent is not None:
+                self.use_heuristic_this_episode = np.random.random() < self.heuristic_prob
+                if self.use_heuristic_this_episode:
+                    self.heuristic_agent.reset()
+                    self.heuristic_episodes += 1
+                else:
+                    self.random_episodes += 1
+                    
         return done
 
     # def add_play_to_buffer(self):
@@ -210,11 +241,29 @@ class DDQNAgent:
               evaluate_n_iter=1000):
 
         self.gamma = gamma
+        
+        # 初始化：决定第一个episode是否使用启发式
+        if self.heuristic_agent is not None:
+            self.use_heuristic_this_episode = np.random.random() < self.heuristic_prob
+            if self.use_heuristic_this_episode:
+                self.heuristic_agent.reset()
+        
         # Populate replay buffer
+        print("pre-filling experience replay buffer...")
         while self.buffer.burn_in_capacity() < 1:
             done = self.take_step(mode='explore')
             # if done:
             #     self.add_play_to_buffer()
+        
+        # 输出预填充统计
+        if self.heuristic_agent is not None:
+            total_explore_eps = self.heuristic_episodes + self.random_episodes
+            if total_explore_eps > 0:
+                heur_pct = self.heuristic_episodes / total_explore_eps * 100
+                print(f"Pre-fill complete: {total_explore_eps} episodes "
+                      f"(Heuristic: {self.heuristic_episodes}/{heur_pct:.1f}%, "
+                      f"Random: {self.random_episodes}/{100-heur_pct:.1f}%)")
+        
         ep = 0
         training = True
 
@@ -337,7 +386,7 @@ class DDQNAgent:
         loss = self.calculate_loss(batch)
         loss.backward()
         # Gradient clipping to prevent gradient explosion
-        # torch.nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=3.0)
+        # torch.nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=6.0)
         self.network.optimizer.step()
         if self.network.device == 'cuda':
             self.update_loss.append(loss.detach().cpu().numpy())
@@ -425,6 +474,7 @@ class DDQNAgent:
         self.best_total_games = 0  # 最佳模型的总局数
         obs_raw, _info = self.env.reset()
         self.s_0 = self._transform_observation(obs_raw)
+        self.s_0_raw = obs_raw.copy()  # 保存原始观测
 
 class experienceReplayBuffer:
 

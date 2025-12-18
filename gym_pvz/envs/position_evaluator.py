@@ -22,6 +22,11 @@ from pvz.entities.plants.potatomine import Potatomine
 LANE_SCORE_MAX = reward_config.LANE_SCORE_MAX
 SHAPING_COEFFICIENT = reward_config.SHAPING_COEFFICIENT
 
+# 阵型组合奖励
+COMBO_WALLNUT_PROTECTS_SHOOTER = reward_config.COMBO_WALLNUT_PROTECTS_SHOOTER
+COMBO_WALLNUT_BLOCKS_ZOMBIE = reward_config.COMBO_WALLNUT_BLOCKS_ZOMBIE
+COMBO_POTATO_BEHIND_WALLNUT = reward_config.COMBO_POTATO_BEHIND_WALLNUT
+
 # ==================== Numba 加速常量 ====================
 # 植物类型编码
 PLANT_TYPE_SUNFLOWER = 0
@@ -377,6 +382,47 @@ def simulate_lane(plants_in_lane: List, zombies_in_lane: List) -> SimulationResu
 
 # 局面评估函数
 
+def evaluate_combo_peaceful(plants_in_lane: List) -> float:
+    """
+    无僵尸时评估植物组合的合理性
+    
+    主要检查：坚果在豌豆射手右侧（保护射手）
+    """
+    combo_score = 0.0
+    
+    # 找出所有坚果和豌豆射手的位置
+    wallnut_positions = []
+    peashooter_positions = []
+    potatomine_positions = []
+    
+    for p in plants_in_lane:
+        plant_type = get_plant_type_name(p)
+        if plant_type == 'wallnut':
+            wallnut_positions.append(p.pos)
+        elif plant_type == 'peashooter':
+            peashooter_positions.append(p.pos)
+        elif plant_type == 'potatomine':
+            potatomine_positions.append(p.pos)
+    
+    # 检查坚果-豌豆射手组合：坚果在豌豆右侧保护豌豆
+    for wallnut_pos in wallnut_positions:
+        for peashooter_pos in peashooter_positions:
+            if wallnut_pos > peashooter_pos:
+                # 坚果在豌豆右侧，形成保护
+                combo_score += COMBO_WALLNUT_PROTECTS_SHOOTER
+            if wallnut_pos < peashooter_pos:
+                # 坚果在豌豆左侧，扣分
+                combo_score -= COMBO_WALLNUT_PROTECTS_SHOOTER * 0.2
+    
+    # 检查坚果-土豆雷组合：土豆雷在坚果左侧
+    for wallnut_pos in wallnut_positions:
+        for potato_pos in potatomine_positions:
+            if wallnut_pos > potato_pos:
+                combo_score += COMBO_POTATO_BEHIND_WALLNUT * 0.1
+    
+    return combo_score
+
+
 def evaluate_lane_peaceful(plants_in_lane: List) -> float:
     """
     无僵尸时评估植物配置
@@ -388,42 +434,110 @@ def evaluate_lane_peaceful(plants_in_lane: List) -> float:
         plant_type = get_plant_type_name(p)
         col = p.pos
         
-        if plant_type == 'sunflower' and col <= 1:
-            score += 10  # 向日葵在前两列
+        if plant_type == 'sunflower' and col == 0:
+            score += 15  # 向日葵在第一列
         if plant_type == 'peashooter' and 1 <= col <= 3:
-            score += 6   # 豌豆在2-4列
+            score += 9   # 豌豆在2-4列
+    
+    # 添加组合奖励
+    score += evaluate_combo_peaceful(plants_in_lane)
     
     return score
+
+
+def evaluate_combo_with_zombies(plants_in_lane: List, zombies_in_lane: List) -> float:
+    """
+    有僵尸时评估植物组合的合理性
+    
+    主要检查：
+    1. 坚果在豌豆/土豆雷右侧（保护输出）
+    2. 坚果正在阻挡僵尸，且左侧有空间放置输出
+    """
+    combo_score = 0.0
+    
+    # 找出所有植物位置
+    wallnut_positions = []
+    peashooter_positions = []
+    potatomine_positions = []
+    all_plant_positions = set()
+    
+    for p in plants_in_lane:
+        plant_type = get_plant_type_name(p)
+        all_plant_positions.add(p.pos)
+        if plant_type == 'wallnut':
+            wallnut_positions.append(p.pos)
+        elif plant_type == 'peashooter':
+            peashooter_positions.append(p.pos)
+        elif plant_type == 'potatomine':
+            potatomine_positions.append(p.pos)
+    
+    # 找出僵尸的最前沿位置（最小的pos）
+    zombie_front_pos = min(z.pos for z in zombies_in_lane) if zombies_in_lane else 10
+    
+    # 检查坚果-豌豆射手组合
+    for wallnut_pos in wallnut_positions:
+        for peashooter_pos in peashooter_positions:
+            if wallnut_pos > peashooter_pos:
+                combo_score += COMBO_WALLNUT_PROTECTS_SHOOTER
+            if wallnut_pos < peashooter_pos:
+                combo_score -= COMBO_WALLNUT_PROTECTS_SHOOTER * 0.2
+    
+    # 检查坚果-土豆雷组合
+    for wallnut_pos in wallnut_positions:
+        for potato_pos in potatomine_positions:
+            if wallnut_pos > potato_pos:
+                combo_score += COMBO_POTATO_BEHIND_WALLNUT
+    
+    # 检查坚果是否在阻挡僵尸，且左侧有空间
+    for wallnut_pos in wallnut_positions:
+        # 坚果在僵尸前方或同位置（正在阻挡）
+        if wallnut_pos >= zombie_front_pos - 1:
+            # 检查坚果左侧是否有空间放置输出植物
+            left_space_count = 0
+            for col in range(wallnut_pos - 1, -1, -1):
+                if col not in all_plant_positions:
+                    left_space_count += 1
+            # 根据左侧空间数量给予奖励
+            if left_space_count == 1:
+                combo_score += COMBO_WALLNUT_BLOCKS_ZOMBIE * 0.3
+            elif left_space_count >= 2:
+                combo_score += COMBO_WALLNUT_BLOCKS_ZOMBIE
+            break
+    
+    return combo_score
 
 
 def evaluate_lane_with_zombies(plants_in_lane: List, zombies_in_lane: List) -> float:
     """
     有僵尸时评估单行局面
     
-    返回: 0-150分
+    返回: 0-150分 + 组合奖励
     """
     sim_result = simulate_lane(plants_in_lane, zombies_in_lane)
     
+    # 基础分数
     if sim_result.zombies_defeated and sim_result.plants_eaten == 0:
         # 情况A: 僵尸被完全消灭，植物无损失 (最好)
-        score = 140.0
-        return min(score, 150.0)
+        score = 150.0
     
     elif not sim_result.breakthrough:
         # 情况B: 僵尸会吃掉一些植物，但不会突破（模拟中消灭）
-        score = 130.0 - sim_result.plants_eaten * 10.0
-        return max(score, 70.0)
+        score = 140.0 - sim_result.plants_eaten * 10.0
+        score = max(score, 80.0)
     
     else:
         # 情况C: 僵尸会突破防线 (最差)
-        # 但拖延时间长、僵尸停留位置靠右会稍微好一点
         score = 0.0
         
-        # 时间加分: 每拖延10帧 +5分，最多+60分
-        time_bonus = min(sim_result.breakthrough_time / 2.0, 60.0)
+        # 时间加分: 每拖延10帧加2.5分，最多40分
+        time_bonus = min(sim_result.breakthrough_time / 4.0, 40.0)
         score += time_bonus
-        
-        return min(score, 60.0)
+    
+    # 组合奖励（鼓励正确的阵型）
+    combo_score = evaluate_combo_with_zombies(plants_in_lane, zombies_in_lane)
+    score += combo_score
+    
+    return score
 
 
 def evaluate_lane(scene, lane: int) -> float:

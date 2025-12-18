@@ -9,6 +9,7 @@ from agents import KeyboardAgent
 from agents import PlayerQ
 from agents import ReinforceAgentV2, PlayerV2
 from agents.ddqn_agent import QNetwork
+from agents.script_agent import ScriptAgent
 from pvz import config
 
 class PVZ():
@@ -270,9 +271,8 @@ if __name__ == "__main__":
         agent.device = device
 
     if agent_type == "AC":
-        env = Trainer(render=False, max_frames=500 * config.FPS)
+        env = Trainer(render=False, max_frames=500 * config.FPS, training=False)
         agent = PPOAgent(
-            input_size=env.num_observations(),
             possible_actions=list(range(env.num_actions()))
         )
         # 根据 use_best 参数决定加载哪个模型

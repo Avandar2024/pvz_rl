@@ -4,10 +4,10 @@ from pvz import config
 from agents import evaluate, PlayerV2, ReinforceAgentV2
 from agents import PlayerQ
 from agents import PlayerQ_DQN
-from agents import ACAgent3, TrainerAC3, KeyboardAgent
+from agents import PPOAgent, KeyboardAgent, Trainer
 from agents.ddqn_agent import QNetwork
 
-agent_type = "DDQN"  # DDQN or Reinforce or AC or Keyboard
+agent_type = "AC"  # DDQN or Reinforce or AC or Keyboard
 
 
 if __name__ == "__main__":
@@ -19,12 +19,12 @@ if __name__ == "__main__":
         agent.load("agents/agent_zoo/dfp5")
 
     if agent_type == "AC":
-        env = TrainerAC3(render=False, max_frames=500 * config.FPS)
-        agent = ACAgent3(
-            input_size=env.num_observations(), possible_actions=env.get_actions()
+        env = Trainer(render=False, max_frames=500 * config.FPS, training=False)
+        agent = PPOAgent(
+            possible_actions=list(range(env.num_actions()))
         )
         # Note: Architecture changed, requires new model file
-        agent.load("agents/agent_zoo/ac_agent_model.pth")
+        agent.load("agents/agent_zoo/ppo_vec_agent/checkpoints/checkpoint_iter_200.pth")
 
     if agent_type == "DDQN":
         env = PlayerQ(render=False)
