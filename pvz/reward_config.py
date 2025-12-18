@@ -14,10 +14,10 @@ REWARD_TIMEOUT = -150.0        # 超时惩罚
 
 # ==================== 即时奖励 ====================
 # 击杀奖励
-ZOMBIE_KILL_REWARD = 24.0     # 击杀普通僵尸奖励 (原 Zombie.SCORE 120)
-ZOMBIE_CONE_KILL_REWARD = 36.0   # 击杀路障僵尸奖励
-ZOMBIE_BUCKET_KILL_REWARD = 36.0 # 击杀铁桶僵尸奖励
-ZOMBIE_FLAG_KILL_REWARD = 24.0   # 击杀旗帜僵尸奖励
+ZOMBIE_KILL_REWARD = 60.0 #24.0     # 击杀普通僵尸奖励 (原 Zombie.SCORE 120)
+ZOMBIE_CONE_KILL_REWARD = 90.0 #36.0   # 击杀路障僵尸奖励
+ZOMBIE_BUCKET_KILL_REWARD = 90.0 #36.0 # 击杀铁桶僵尸奖励
+ZOMBIE_FLAG_KILL_REWARD = 60.0   # 击杀旗帜僵尸奖励
 
 # 惩罚
 LIFE_LOSS_PENALTY = -100.0     # 僵尸进家惩罚（每损失一条生命）

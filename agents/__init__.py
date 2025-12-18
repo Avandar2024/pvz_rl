@@ -13,3 +13,7 @@ from .keyboard_agent import KeyboardAgent
 from .cnn_networks import CNNFeatureExtractor  # 共享的特征提取器
 from .cnn_ddqn_agent import CNNQNetwork, CNN_DDQNAgent, PlayerQ_CNN as PlayerCNN_DDQN
 from .cnn_dddqn_agent import CNNDuelingQNetwork, CNN_D3QNAgent, PlayerQ_CNN as PlayerCNN_D3QN
+
+# ACNN版本 (Attention CNN) - 带CBAM注意力机制
+from .acnn_networks import ACNNFeatureExtractor, CBAM, ChannelAttention, SpatialAttention
+from .acnn_dddqn_agent import ACNNDuelingQNetwork, ACNN_D3QNAgent, PlayerQ_ACNN
