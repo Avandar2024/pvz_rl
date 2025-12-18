@@ -188,19 +188,11 @@ if __name__ == "__main__":
         agent.device = device
 
     if agent_type == "AC":
-        env = Trainer(render=False, max_frames=500 * config.FPS)
+        env = Trainer(render=False, max_frames=500 * config.FPS, training=False)
         agent = PPOAgent(
-            input_size=env.num_observations(),
             possible_actions=list(range(env.num_actions()))
         )
-        # 根据 use_best 参数决定加载哪个模型
-        model_suffix = "_best" if use_best else ""
-        model_path = Path("agents/agent_zoo") / model_name / f"{model_name}{model_suffix}.pth"
-        if not model_path.exists():
-            # 备选: 直接使用旧路径
-            model_path = Path(f"{model_name}{model_suffix}.pth")
-        print(f"Loading AC model from: {model_path}")
-        agent.load(str(model_path))
+        agent.load("agents/agent_zoo/ppo_vec_agent/checkpoints/checkpoint_iter_50.pth")
 
     if agent_type == "Keyboard":
         env = PlayerV2(render=True, max_frames=500 * config.FPS)
