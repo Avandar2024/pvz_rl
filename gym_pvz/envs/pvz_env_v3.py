@@ -23,12 +23,39 @@ PLACEMENT_REWARDS = rcfg.PLACEMENT_REWARDS
 PLACEMENT_DEFAULT = rcfg.PLACEMENT_DEFAULT
 FRONT_ROW_PENALTY = rcfg.FRONT_ROW_PENALTY
 
+# 危险区域惩罚配置
+DANGER_ZONE_THRESHOLD = rcfg.DANGER_ZONE_THRESHOLD
+DANGER_ZONE_PENALTY_BASE = rcfg.DANGER_ZONE_PENALTY_BASE
+DANGER_ZONE_PENALTY_SCALE = rcfg.DANGER_ZONE_PENALTY_SCALE
+
 
 def _get_placement_reward(plant_type: str, col: int) -> float:
     """获取种植位置奖励（在 env 中直接计算）"""
     plant_rewards = PLACEMENT_REWARDS.get(plant_type, {})
     default_reward = PLACEMENT_DEFAULT.get(plant_type, 0)
     return plant_rewards.get(col, default_reward)
+
+
+def _calculate_danger_zone_penalty(scene) -> float:
+    """
+    计算危险区域惩罚
+    
+    当僵尸进入危险区域（0到DANGER_ZONE_THRESHOLD-1列）时，给予持续的负奖励。
+    越靠近左边（房子），惩罚越大。
+    
+    返回: 负的惩罚值（或0如果没有僵尸在危险区域）
+    """
+    penalty = 0.0
+    
+    for zombie in scene.zombies:
+        if zombie.hp > 0 and zombie.pos < DANGER_ZONE_THRESHOLD:
+            # 僵尸在危险区域
+            # 惩罚随着位置越靠左越大
+            distance_from_house = zombie.pos  # 0表示最靠近房子
+            danger_level = DANGER_ZONE_THRESHOLD - distance_from_house
+            penalty += DANGER_ZONE_PENALTY_BASE * danger_level * DANGER_ZONE_PENALTY_SCALE
+    
+    return penalty
 
 MAX_ZOMBIE_HP = 10000
 MAX_SUN = 10000
@@ -77,13 +104,15 @@ class PVZEnv_V3(gym.Env):
         1. base_reward: 基础环境奖励 (击杀分数等)
         2. placement_reward: 种植位置奖励 (引导合理布局)
         3. shaping_reward: 局面评估差分奖励 (势能塑形，只评估种植行)
-        4. terminal_reward: 终局奖励 (胜利/失败/超时)
+        4. danger_zone_penalty: 危险区域惩罚 (僵尸进入左侧区域的持续惩罚)
+        5. terminal_reward: 终局奖励 (胜利/失败/超时)
         
         返回:
             obs, reward, terminated, truncated, info
         """
         placement_reward = 0.0
         shaping_reward = 0.0
+        danger_zone_penalty = 0.0
         old_lane_value = 0.0
         plant_lane = -1
         planted = False
@@ -135,10 +164,13 @@ class PVZEnv_V3(gym.Env):
             terminated = is_defeat or is_victory
             truncated = self._scene.is_timeout()
         
-        # 计算势能塑形奖励（只有种植成功才计算）
+        # 计算势能塑形奖励
         if planted and plant_lane >= 0:
             new_lane_value = evaluate_lane(self._scene, plant_lane)
             shaping_reward = SHAPING_COEFFICIENT * (new_lane_value - old_lane_value)
+        
+        # 计算危险区域惩罚
+        danger_zone_penalty = _calculate_danger_zone_penalty(self._scene)
         
         # 终局奖励
         terminal_reward = 0.0
@@ -154,6 +186,7 @@ class PVZEnv_V3(gym.Env):
             base_reward * 1.0 +
             placement_reward * 1.0 +
             shaping_reward * 1.0 +
+            danger_zone_penalty * 1.0 +
             terminal_reward * 1.0
         )
         
@@ -166,6 +199,7 @@ class PVZEnv_V3(gym.Env):
             'base_reward': base_reward,
             'placement_reward': placement_reward,
             'shaping_reward': shaping_reward,
+            'danger_zone_penalty': danger_zone_penalty,
             'terminal_reward': terminal_reward,
             'plant_lane': plant_lane
         }

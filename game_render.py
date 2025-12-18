@@ -2,17 +2,19 @@ import gymnasium as gym
 import pygame
 import torch
 from pathlib import Path
+import argparse
 
 from agents import PPOAgent, Trainer
 from agents import KeyboardAgent
 from agents import PlayerQ
 from agents import ReinforceAgentV2, PlayerV2
 from agents.ddqn_agent import QNetwork
+from agents.script_agent import ScriptAgent
 from pvz import config
 
 class PVZ():
     def __init__(self, render=True, max_frames=1000):
-        self.env = gym.make('gym_pvz:pvz-env-v2')
+        self.env = gym.make('gym_pvz:pvz-env-v3')
         self.max_frames = max_frames
         self.render = render
 
@@ -44,7 +46,7 @@ class PVZ():
                 break
 
     def get_render_info(self):
-        return self.env._scene._render_info
+        return self.env.unwrapped._scene._render_info
 
 
 def render(render_info):
@@ -134,29 +136,44 @@ def render(render_info):
     pygame.quit()
 
 
-agent_type = "DDQN"  # DDQN or Reinforce or AC or Keyboard
-
 if __name__ == "__main__":
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description='PVZ Game Renderer with Agent')
+    parser.add_argument('--agent_type', type=str, default='DDQN',
+                        choices=['DDQN', 'Reinforce', 'AC', 'Keyboard', 'Script'],
+                        help='Type of agent to use (default: DDQN)')
+    parser.add_argument('--model_name', type=str, default='test',
+                        help='Name of the model to load (default: test)')
+    parser.add_argument('--use_best', action='store_true',
+                        help='Whether to use the best model (adds _best suffix)')
+    
+    args = parser.parse_args()
+    agent_type = args.agent_type
+    model_name = args.model_name
+    use_best = args.use_best
 
+    if agent_type == "Script":
+        env = PVZ(render=False, max_frames=1000)
+        agent = ScriptAgent(n_plants=4)
+    
     if agent_type == "Reinforce":
         env = PlayerV2(render=False, max_frames=500 * config.FPS)
         agent = ReinforceAgentV2(
             input_size=env.num_observations(),
             possible_actions=env.get_actions()
         )
-        agent.load("agents/agent_zoo/dfp5")
+        # 根据 use_best 参数决定加载哪个模型
+        model_suffix = "_best" if use_best else ""
+        load_path = f"agents/agent_zoo/{model_name}/{model_name}{model_suffix}"
+        print(f"Loading Reinforce model from: {load_path}")
+        agent.load(load_path)
 
     if agent_type == "DDQN":
         env = PlayerQ(render=False)
-        # model_name = "cnn_dddqn_originv2_best"
-        # # 尝试从 agent_zoo 加载
-        # model_path = Path("agents/agent_zoo") / model_name / model_name
-        # if not model_path.exists():
-        #     # 备选: 直接使用旧路径
-        #     model_path = Path("agents/agent_zoo") / model_name
-        load_path = "agents/agent_zoo/cnn_dddqn_originv2/cnn_dddqn_originv2"
-        
-        # 自动选择设备：有GPU用GPU，没有用CPU
+        # 根据 use_best 参数决定加载哪个模型
+        model_suffix = "_best" if use_best else ""
+        load_path = f"agents/agent_zoo/{model_name}/{model_name}{model_suffix}"
+        print(f"Loading DDQN model from: {load_path}")
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         # Allowlist QNetwork for safe unpickling and load the full object.
         if hasattr(torch.serialization, "safe_globals"):
@@ -168,7 +185,6 @@ if __name__ == "__main__":
             # add_safe_globals exists in some versions
             torch.serialization.add_safe_globals([QNetwork])
             agent = torch.load(load_path, weights_only=False, map_location=device)
-        # 确保模型的device属性与实际设备一致
         agent.device = device
 
     if agent_type == "AC":
@@ -177,17 +193,19 @@ if __name__ == "__main__":
             input_size=env.num_observations(),
             possible_actions=list(range(env.num_actions()))
         )
-        # 尝试从 agent_zoo 加载
-        model_name = "ppo_vec_agent"
-        model_path = Path("agents/agent_zoo") / model_name / f"{model_name}.pth"
+        # 根据 use_best 参数决定加载哪个模型
+        model_suffix = "_best" if use_best else ""
+        model_path = Path("agents/agent_zoo") / model_name / f"{model_name}{model_suffix}.pth"
         if not model_path.exists():
             # 备选: 直接使用旧路径
-            model_path = Path("ppo_vec_agent.pth")
+            model_path = Path(f"{model_name}{model_suffix}.pth")
+        print(f"Loading AC model from: {model_path}")
         agent.load(str(model_path))
 
     if agent_type == "Keyboard":
         env = PlayerV2(render=True, max_frames=500 * config.FPS)
         agent = KeyboardAgent()
+    
     env.play(agent)
     render_info = env.get_render_info()
     render(render_info)
