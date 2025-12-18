@@ -27,7 +27,7 @@ class CNNDuelingQNetwork(nn.Module):
     Q(s,a) = V(s) + (A(s,a) - mean(A(s,:)))
     """
 
-    def __init__(self, env, epsilon=0.05, learning_rate=1e-3, device='cpu',
+    def __init__(self, env, epsilon=0.05, learning_rate=5e-5, device='cpu',
                  hidden_channels=32, feature_size=128):
         super(CNNDuelingQNetwork, self).__init__()
         self.device = device
@@ -127,8 +127,8 @@ class CNN_D3QNAgent:
     训练逻辑、输出格式与原版dddqn_agent.py完全一致，只是网络换成CNN版本。
     """
 
-    def __init__(self, env, network, buffer, n_iter=100000, batch_size=32,
-                 tau=0.005, grad_clip=10.0, end_epsilon=0.15):
+    def __init__(self, env, network, buffer, n_iter=100000, batch_size=64,
+                 tau=0.001, grad_clip=10.0, end_epsilon=0.15):
         self._grid_size = config.N_LANES * config.LANE_LENGTH
         self.env = env
         self.network = network

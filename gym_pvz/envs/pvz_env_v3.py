@@ -87,7 +87,8 @@ class PVZEnv_V3(gym.Env):
         nvec = ([len(self.plant_deck) + 1] * grid_size + 
                 [MAX_ZOMBIE_HP] * grid_size + 
                 [MAX_SUN] + 
-                [2] * len(self.plant_deck))
+                [2] * len(self.plant_deck) +
+                [2] * grid_size) # Location mask (0 or 1)
         self.observation_space = MultiDiscrete(nvec)
 
         self._plant_names = [plant_name for plant_name in self.plant_deck]
@@ -201,7 +202,8 @@ class PVZEnv_V3(gym.Env):
             'shaping_reward': shaping_reward,
             'danger_zone_penalty': danger_zone_penalty,
             'terminal_reward': terminal_reward,
-            'plant_lane': plant_lane
+            'plant_lane': plant_lane,
+            'is_victory': is_victory
         }
         
         return obs, total_reward, terminated, truncated, info
@@ -228,11 +230,15 @@ class PVZEnv_V3(gym.Env):
             for plant_name in self.plant_deck
         ])
         
+        # 位置掩码: 1 表示空位 (可种植), 0 表示已有植物
+        location_mask = (obs_grid == 0).astype(int)
+        
         return np.concatenate([
             obs_grid, 
             zombie_grid, 
             [min(self._scene.sun, MAX_SUN)], 
-            action_available
+            action_available,
+            location_mask
         ])
 
     def reset(self, seed=None, options=None):
@@ -268,4 +274,5 @@ class PVZEnv_V3(gym.Env):
 
     def num_observations(self):
         """观察空间维度"""
-        return 2 * config.N_LANES * config.LANE_LENGTH + len(self.plant_deck) + 1
+        # 增加 location_mask 的维度
+        return 2 * config.N_LANES * config.LANE_LENGTH + len(self.plant_deck) + 1 + config.N_LANES * config.LANE_LENGTH

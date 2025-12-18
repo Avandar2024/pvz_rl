@@ -30,9 +30,9 @@ if __name__ == "__main__":
     parser.add_argument("--eval-iter", type=int, default=1000, help="每次评估的迭代次数")
     parser.add_argument("--lr", type=float, default=1e-4, help="学习率")
     # 新增稳定性参数
-    parser.add_argument("--tau", type=float, default=0.005, help="软更新系数(越小越稳定)")
+    parser.add_argument("--tau", type=float, default=0.001, help="软更新系数(越小越稳定)")
     parser.add_argument("--grad-clip", type=float, default=10.0, help="梯度裁剪阈值")
-    parser.add_argument("--end-epsilon", type=float, default=0.13, help="最终探索率")
+    parser.add_argument("--end-epsilon", type=float, default=0.15, help="最终探索率")
     args = parser.parse_args()
     
     n_iter = args.episodes
