@@ -474,19 +474,25 @@ def evaluate_combo_with_zombies(plants_in_lane: List, zombies_in_lane: List) -> 
     # 找出僵尸的最前沿位置（最小的pos）
     zombie_front_pos = min(z.pos for z in zombies_in_lane) if zombies_in_lane else 10
     
+    score_1 = 0.0
+    score_2 = 0.0
     # 检查坚果-豌豆射手组合
     for wallnut_pos in wallnut_positions:
         for peashooter_pos in peashooter_positions:
             if wallnut_pos > peashooter_pos:
-                combo_score += COMBO_WALLNUT_PROTECTS_SHOOTER
+                score_1 += COMBO_WALLNUT_PROTECTS_SHOOTER
             if wallnut_pos < peashooter_pos:
-                combo_score -= COMBO_WALLNUT_PROTECTS_SHOOTER * 0.2
+                score_1 -= COMBO_WALLNUT_PROTECTS_SHOOTER * 0.2
+    if (len(peashooter_positions) == 1):
+        score_1 = min(score_1, COMBO_WALLNUT_PROTECTS_SHOOTER * 2)
+    combo_score += min(score_1, COMBO_WALLNUT_PROTECTS_SHOOTER * 4)
     
     # 检查坚果-土豆雷组合
     for wallnut_pos in wallnut_positions:
         for potato_pos in potatomine_positions:
             if wallnut_pos > potato_pos:
-                combo_score += COMBO_POTATO_BEHIND_WALLNUT
+                score_2 += COMBO_POTATO_BEHIND_WALLNUT
+    combo_score += min(score_2, COMBO_POTATO_BEHIND_WALLNUT * 1.5)
     
     # 检查坚果是否在阻挡僵尸，且左侧有空间
     for wallnut_pos in wallnut_positions:

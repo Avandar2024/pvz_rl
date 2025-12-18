@@ -15,10 +15,10 @@ MAX_WAVES = 3  # 最大波数，第MAX_WAVES波后不再生成新僵尸
 # wave_count = 1: 第一波结束后（开始出现路障）
 # wave_count = 2: 第二波结束后（开始出现铁桶）
 ZOMBIE_SPAWN_CONFIG = {
-    0: {'bucket_prob': 0.0, 'cone_prob': 0.0},     # 第一波前：只有普通僵尸
-    1: {'bucket_prob': 0.0, 'cone_prob': 0.06},    # 第二波前：路障6%
-    2: {'bucket_prob': 0.02, 'cone_prob': 0.10},   # 第三波前：铁桶2%，路障10%
-    3: {'bucket_prob': 0.05, 'cone_prob': 0.15},   # 第三波后：铁桶5%，路障15%
+    0: {'bucket_prob': 0.0, 'cone_prob': 0.05},    # 第一波前
+    1: {'bucket_prob': 0.02, 'cone_prob': 0.1},    # 第二波前
+    2: {'bucket_prob': 0.05, 'cone_prob': 0.15},   # 第三波前
+    3: {'bucket_prob': 0.1, 'cone_prob': 0.2},   # 第三波后
 }
 
 class WaveZombieSpawner(ZombieSpawner):
