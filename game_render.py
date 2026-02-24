@@ -53,7 +53,10 @@ def render(render_info):
     pygame.init()
     pygame.font.init()  # you have to call this at the start,
     # if you want to use this module.
-    myfont = pygame.font.SysFont('calibri', 30)
+    try:
+        myfont = pygame.font.SysFont('calibri', 30)
+    except Exception:
+        myfont = pygame.font.Font(None, 30)
 
     screen = pygame.display.set_mode((1450, 650))
     zombie_sprite = {"zombie": pygame.image.load("assets/zombie_scaled.png").convert_alpha(),
