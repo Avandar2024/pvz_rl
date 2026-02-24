@@ -5,9 +5,21 @@
 ```bash
 uv sync
 ```
-uv 可能需要自己安装
 
-## Quick Start
+## 效果演示
 ```python
 python game_render.py
 ```
+
+## 训练脚本
+
+### ppo
+```python
+python train_ppo_vec.py
+或 python train_ppo_vec_mlx.py (mac上训练使用)
+```
+
+### ddqn
+
+## 模型权重文件
+在 agents/agentz_zoo下
