@@ -1,6 +1,4 @@
 """
-ACNN-D3QN (Attention CNN + Dueling Double DQN) 训练脚本
-
 在CNN-D3QN基础上添加CBAM注意力机制：
 - Channel Attention: 学习哪个特征通道更重要
 - Spatial Attention: 学习哪个空间位置更重要

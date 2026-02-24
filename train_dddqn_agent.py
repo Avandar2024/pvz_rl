@@ -1,7 +1,6 @@
 """
-Dueling Double DQN (D3QN/DDDQN) 训练脚本
+Dueling Double DQN
 
-结合了:
 1. Double DQN: 减少Q值过估计
 2. Dueling DQN: V(s) + A(s,a) 网络架构
 

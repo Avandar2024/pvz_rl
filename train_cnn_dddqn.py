@@ -1,6 +1,4 @@
 """
-CNN-D3QN (Dueling Double DQN with CNN) 训练脚本
-
 结合CNN空间特征提取 + Dueling架构 + Double DQN
 
 用法:
