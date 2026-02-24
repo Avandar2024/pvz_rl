@@ -1,7 +1,7 @@
 import gymnasium as gym
 import numpy as np
 from pathlib import Path
-from agents.ac import PPOAgent, Trainer
+from agents.ac_mlx import PPOAgent, Trainer
 from pvz import config
 import matplotlib.pyplot as plt
 
@@ -13,26 +13,22 @@ def make_env():
     return env
 
 def train_vec(num_envs=32, n_iter=5000, n_steps=1024, checkpoint_interval=50):
-    print(f"Training with {num_envs} environments...")
-    # Create vector env
+    print(f"Training with {num_envs} environments using MLX...")
     envs = gym.vector.AsyncVectorEnv([make_env for _ in range(num_envs)])
     
-    model_name = "ppo_vec_agent"
-    # Create save directory
+    model_name = "ppo_vec_agent_mlx"
     save_dir = Path("agents/agent_zoo") / model_name
     save_dir.mkdir(parents=True, exist_ok=True)
     checkpoints_dir = save_dir / "checkpoints"
     checkpoints_dir.mkdir(exist_ok=True)
     
-    # Get dimensions
     dummy_env = Trainer(render=False)
     num_actions = dummy_env.num_actions()
     possible_actions = list(range(num_actions))
-    grid_size = dummy_env._grid_size
     
     agent = PPOAgent(
         possible_actions=possible_actions,
-        mini_batch_size=256
+        mini_batch_size=512
     )
     
     dummy_env.compile_agent_network(agent)
@@ -46,7 +42,6 @@ def train_vec(num_envs=32, n_iter=5000, n_steps=1024, checkpoint_interval=50):
     loss_history = []
     entropy_history = []
     
-    # Track scores
     episode_scores = np.zeros(num_envs)
     
     for iteration in range(n_iter):
@@ -55,20 +50,15 @@ def train_vec(num_envs=32, n_iter=5000, n_steps=1024, checkpoint_interval=50):
             
             next_obs, rewards, terminations, truncations, infos = envs.step(action)
                         
-            # Update scores
             episode_scores += rewards
             
-            # Handle done
             dones = terminations | truncations
             
-            # If any env is done, print score and reset score
             for i, done in enumerate(dones):
                 if done:
-                    # print(f"Env {i} done. Score: {episode_scores[i]}")
                     score_history.append(episode_scores[i])
                     episode_scores[i] = 0
                     
-                    # Track win rate
                     if "is_victory" in infos:
                         is_win = infos["is_victory"][i]
                         win_history.append(1 if is_win else 0)
@@ -78,7 +68,6 @@ def train_vec(num_envs=32, n_iter=5000, n_steps=1024, checkpoint_interval=50):
             next_obs = dummy_env._transform_observation(next_obs)
             obs = next_obs
             
-        # Update
         loss, entropy = agent.update(obs)
         loss_history.append(loss)
         entropy_history.append(entropy)
@@ -88,7 +77,7 @@ def train_vec(num_envs=32, n_iter=5000, n_steps=1024, checkpoint_interval=50):
         print(f"Iteration {iteration}, Loss: {loss:.4f}, Entropy: {entropy:.4f}, Avg Score (last 100): {avg_score:.2f}, Win Rate: {avg_win_rate:.2%}")
         
         if (iteration + 1) % checkpoint_interval == 0:
-            checkpoint_path = checkpoints_dir / f"checkpoint_iter_{iteration+1}.pth"
+            checkpoint_path = checkpoints_dir / f"checkpoint_iter_{iteration+1}.safetensors"
             agent.save(str(checkpoint_path))
             print(f"Saved checkpoint to {checkpoint_path}")
         
@@ -117,8 +106,7 @@ def train_vec(num_envs=32, n_iter=5000, n_steps=1024, checkpoint_interval=50):
     plt.savefig(str(plot_path))
     plt.close()
     
-    # Save final model
-    final_model_path = save_dir / f"{model_name}.pth"
+    final_model_path = save_dir / f"{model_name}.safetensors"
     agent.save(str(final_model_path))
     print(f"\nTraining complete!")
     print(f"Models saved to: {save_dir}")

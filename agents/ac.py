@@ -127,7 +127,7 @@ class ActorCriticNetwork(nn.Module):
 # 2. PPO Agent (策略梯度算法)
 class PPOAgent():
     """Proximal Policy Optimization (PPO) Agent 的实现。"""
-    def __init__(self, lr=3e-4, gamma=0.99, eps_clip=0.2, K_epochs=10, gae_lambda=0.95, mini_batch_size=256, possible_actions=None):
+    def __init__(self, lr=1e-4, gamma=0.99, eps_clip=0.2, K_epochs=20, gae_lambda=0.95, mini_batch_size=256, entropy_coef=0.03, reward_scale=100.0, possible_actions=None):
         
         self.device = get_device()
         print(f"Using device: {self.device}")
@@ -141,12 +141,16 @@ class PPOAgent():
 
         self.network = ActorCriticNetwork(self.base_dim, self.plant_dim,  self.n_lanes, self.lane_length).to(self.device)
         self.optimizer = optim.Adam(self.network.parameters(), lr=lr, eps=1e-5)
+        # 动态学习率衰减
+        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1000, gamma=0.99)
         
         self.gamma = gamma
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
         self.gae_lambda = gae_lambda
         self.mini_batch_size = mini_batch_size
+        self.entropy_coef = entropy_coef
+        self.reward_scale = reward_scale
         self.posible_actions = possible_actions
         
         self.reset_storage()
@@ -261,33 +265,30 @@ class PPOAgent():
         self.saved_log_probs.append(stored_log_probs if not is_single_env else stored_log_probs[0])
         self.saved_values.append(stored_values if not is_single_env else stored_values[0])
 
-        # 映射到环境动作整数
-        def map_action(b, p_all, l_all):
-            if b == 0: # No-op / Collect Sun (Global No-op)
-                return 0
-            else:
-                # Lane index is b - 1
-                lane_idx = int(b) - 1
-                p = p_all[lane_idx]
-                l = l_all[lane_idx]
-               
-                return 1 + (int(l) * self.n_lanes + lane_idx) * self.plant_dim + int(p)
+        # 直接在 Tensor 层面计算环境所需的标量动作，避免 Python 循环和 map_action 导致计算图断裂
+        selected_plant = action_plant.gather(1, lane_indices.unsqueeze(1)).squeeze(1)
+        selected_loc = action_loc.gather(1, lane_indices.unsqueeze(1)).squeeze(1)
+        
+        env_action = 1 + (selected_loc * self.n_lanes + lane_indices) * self.plant_dim + selected_plant
+        env_action = torch.where(action_base == 0, torch.tensor(0, device=self.device), env_action)
 
-        # 转换为 numpy/python scalar 传给环境
-        a_base = action_base.cpu().numpy()
-        a_plant = action_plant.cpu().numpy()
-        a_loc = action_loc.cpu().numpy()
+        env_action_np = env_action.cpu().numpy()
 
         if is_single_env:
-            return map_action(a_base.item(), a_plant, a_loc)
+            return env_action_np.item()
         else:
-            # 使用列表推导式高效映射向量环境的动作
-            return np.array([map_action(b, p, l) for b, p, l in zip(a_base, a_plant, a_loc)])
+            return env_action_np
         
     def store_reward_done(self, reward, done):
         """存储奖励和终止信号 (支持单环境或向量化环境)"""
         # 统一转换为 Tensor 并存储
-        self.saved_rewards.append(self._to_tensor(reward))
+        # 对 reward 进行缩放归一化，防止高分时 Value Loss 爆炸
+        if isinstance(reward, np.ndarray):
+            scaled_reward = reward / self.reward_scale
+        else:
+            scaled_reward = reward / self.reward_scale
+            
+        self.saved_rewards.append(self._to_tensor(scaled_reward))
         self.saved_dones.append(self._to_tensor(done))
 
     def update(self, next_observation):
@@ -413,10 +414,13 @@ class PPOAgent():
                 surr1 = ratios * batch_advantages
                 surr2 = torch.clamp(ratios, 1.0 - self.eps_clip, 1.0 + self.eps_clip) * batch_advantages
                 
-                # 损失函数: Policy Loss (最小化) + 0.5 * Value Loss (MSE) - 0.01 * Entropy Loss (最大化)
+                # 损失函数: Policy Loss (最小化) + 0.5 * Value Loss (Huber) - entropy_coef * Entropy Loss (最大化)
                 policy_loss = -torch.min(surr1, surr2).mean()
-                value_loss = 0.5 * F.mse_loss(state_values, batch_returns)
-                entropy_loss = -0.01 * entropy.mean() # 鼓励探索
+                # print(f"policy_loss: {policy_loss.item():.4f}")
+                # 使用 Smooth L1 Loss (Huber Loss) 替代 MSE，防止 Value Loss 爆炸导致梯度被 Value 支配
+                value_loss = 0.5 * F.smooth_l1_loss(state_values, batch_returns)
+                # print(f"value_loss: {value_loss.item():.4f}")
+                entropy_loss = -self.entropy_coef * entropy.mean() # 鼓励探索
                 
                 loss = policy_loss + value_loss + entropy_loss
                 
@@ -429,6 +433,7 @@ class PPOAgent():
                 total_entropy += entropy.mean().item()
                 n_updates += 1
                 
+        self.scheduler.step()
         self.reset_storage()
         return (total_loss / n_updates, total_entropy / n_updates) if n_updates > 0 else (0, 0)
 
