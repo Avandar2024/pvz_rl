@@ -14,11 +14,16 @@ python game_render.py
 python game_render.py --agent_type AGENT_TYPE --model_name MODEL_NAME
 AGENT_TYPE: 选择使用的智能体类型，如ppo、ddqn、dddqn
 MODEL_NAME: 选择使用的模型权重文件名
+运行我们的最佳模型：
+```bash
+python game_render.py --agent_type DDQN --model_name test_1
+```
+
 
 ## 训练脚本
 
 ### ppo
-```python
+```bash
 python train_ppo_vec.py
 或 python train_ppo_vec_mlx.py (mac上训练使用)
 ```
