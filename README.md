@@ -10,6 +10,10 @@ uv sync
 ```python
 python game_render.py
 ```
+## 运行脚本
+python game_render.py --agent_type AGENT_TYPE --model_name MODEL_NAME
+AGENT_TYPE: 选择使用的智能体类型，如ppo、ddqn、dddqn
+MODEL_NAME: 选择使用的模型权重文件名
 
 ## 训练脚本
 
@@ -20,6 +24,10 @@ python train_ppo_vec.py
 ```
 
 ### ddqn
+python TRAIN_SCRIPT --episodes NUMBER --name MODEL_NAME
+TRAIN_SCRIPT: 选择训练脚本，如train_cnn_dddqn.py、train_acnn_dddqn.py、train_dddqn_agent.py
+NUMBER: 训练的总回合数
+MODEL_NAME: 训练完成后保存的模型权重文件名
 
 ## 模型权重文件
-在 agents/agentz_zoo下
+在 agents/agent_zoo下
